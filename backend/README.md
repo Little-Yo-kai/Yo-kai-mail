@@ -2,65 +2,25 @@
 
 This backend is the orchestration layer for Yo-kai Mail.
 
-## Current checkpoint
+## Phase 1 progress
 
-Checkpoint 2 now proves this path:
-
-```text
-POST website URL
-      -> Django / DRF
-      -> Firecrawl
-      -> raw provider response
-      -> WebsiteSnapshot normalizer
-      -> stable Yo-kai Mail JSON response
-```
-
-The application no longer exposes Firecrawl's complete provider-shaped response
-as its internal contract. Instead, the response is normalized into a
-`WebsiteSnapshot`.
-
-## Why WebsiteSnapshot exists
-
-Firecrawl is an extraction provider, not the source of truth for our product.
-
-For example, an extractor may mistake a product page title for the company brand
-or classify a modal button as the site's primary CTA. The snapshot therefore
-stores fields such as `brand_name_candidate` as observed evidence. In the next
-checkpoint, Gemini will interpret this evidence to produce a `BrandProfile`.
-
-## Local setup (Windows PowerShell)
-
-From the `backend` directory:
-
-```powershell
-uv sync
-Copy-Item .env.example .env
-```
-
-Open `.env` and set your own Firecrawl key:
+The current working pipeline is:
 
 ```text
-FIRECRAWL_API_KEY=fc-your-key-here
+Website URL
+    -> Firecrawl
+    -> WebsiteSnapshot
+    -> Gemini
+    -> BrandProfile
 ```
 
-Then run:
+### 1. Website intelligence
 
-```powershell
-uv run python manage.py migrate
-uv run python manage.py test
-uv run python manage.py runserver
+```text
+POST /api/website/import/
 ```
 
-## Test the endpoint
-
-Send:
-
-```http
-POST http://127.0.0.1:8000/api/website/import/
-Content-Type: application/json
-```
-
-Body:
+Input:
 
 ```json
 {
@@ -68,43 +28,91 @@ Body:
 }
 ```
 
-The response now has this high-level shape:
+This returns Yo-kai Mail's normalized `WebsiteSnapshot`.
+
+### 2. Brand intelligence
+
+```text
+POST /api/brand/analyze/
+```
+
+Input:
 
 ```json
 {
-  "success": true,
-  "data": {
-    "schema_version": "1.0",
-    "source": {},
-    "content": {},
-    "visual": {},
-    "assets": {},
-    "detected_branding": {},
-    "extraction": {}
+  "snapshot": {
+    "...": "paste the WebsiteSnapshot data object here"
   }
 }
 ```
 
-## WebsiteSnapshot sections
+This returns a validated `BrandProfile` containing:
 
-- `source`: requested/resolved URL and page metadata
-- `content`: extracted public text/markdown
-- `visual`: screenshot evidence
-- `assets`: public image URLs and logo/favicon/OG candidates
-- `detected_branding`: provider-detected visual/style evidence
-- `extraction`: provider/debug metadata
+- canonical brand identity
+- email-usable color palette
+- typography
+- visual style keywords
+- tone and copy characteristics
+- deterministic logo/hero candidates
+- confidence score
 
-## Swagger
+Gemini uses structured JSON output validated by Pydantic. Website content is
+treated as untrusted evidence, and asset URLs are bound from WebsiteSnapshot by
+application code instead of allowing the model to invent them.
 
-With the server running:
+## Local setup
+
+From `backend/`:
+
+```powershell
+uv sync
+```
+
+Make sure your local `.env` contains:
+
+```text
+FIRECRAWL_API_KEY=...
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3.8-flash
+```
+
+Never commit `.env`.
+
+Run:
+
+```powershell
+uv run python manage.py test
+uv run python manage.py runserver
+```
+
+Swagger:
 
 ```text
 http://127.0.0.1:8000/api/docs/swagger/
 ```
 
-## Important
+## Current V0 limitation
 
-- Never commit `.env`.
-- `detected_branding` contains evidence, not authoritative brand truth.
-- The current URL validation is sufficient for this local proof-of-pipeline checkpoint, but it is not production-grade SSRF protection.
-- Do not add Gemini, MJML, the visual editor, or campaign logic until this checkpoint works.
+The Brand Intelligence service includes the screenshot URL in its evidence, but
+does not yet download and send the screenshot bytes as multimodal Gemini input.
+The base text/structured-evidence pipeline should be proven first. Screenshot
+vision can be added afterward by the Brand Intelligence owner.
+
+## Team boundaries
+
+```text
+website_intelligence/
+    URL -> WebsiteSnapshot
+
+brand_intelligence/
+    WebsiteSnapshot -> BrandProfile
+
+future email_generation/
+    BrandProfile + CampaignBrief -> EmailDesign
+
+future rendering/
+    EmailDesign -> MJML -> HTML
+
+future delivery/
+    HTML -> DeliveryResult
+```
