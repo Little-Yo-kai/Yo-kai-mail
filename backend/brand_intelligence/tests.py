@@ -113,7 +113,7 @@ class GeminiBrandServiceTests(APITestCase):
         call = client.interactions.create.call_args.kwargs
         self.assertEqual(call["model"], "gemini-test")
         self.assertEqual(
-            call["response_format"]["mime_type"],
+            call["response_format"][0]["mime_type"],
             "application/json",
         )
 
