@@ -64,11 +64,13 @@ class GeminiBrandService:
             interaction = self.client.interactions.create(
                 model=settings.GEMINI_MODEL,
                 input=prompt,
-                response_format={
-                    "type": "text",
-                    "mime_type": "application/json",
-                    "schema": BrandAnalysis.model_json_schema(),
-                },
+                response_format=[
+                    {
+                        "type": "text",
+                        "mime_type": "application/json",
+                        "schema": BrandAnalysis.model_json_schema(),
+                    }
+                ],
             )
             output_text = getattr(interaction, "output_text", None)
             if not output_text:
