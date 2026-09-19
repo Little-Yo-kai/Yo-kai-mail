@@ -12,9 +12,6 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 SECRET_KEY = env('SECRET_KEY', default='your-fallback-development-secret-key')
 DEBUG = env('DEBUG')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
 ALLOWED_HOSTS = []
 
 
@@ -34,6 +31,9 @@ INSTALLED_APPS = [
     'corsheaders',
     'dj_rest_auth',
     'drf_spectacular',
+
+    # Local apps
+    'website_intelligence',
 ]
 
 MIDDLEWARE = [
@@ -41,7 +41,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-   
+
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -65,8 +65,6 @@ TEMPLATES = [
         },
     },
 ]
-
-
 
 
 # Database
@@ -129,6 +127,8 @@ CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[
     'http://127.0.0.1:3000',
 ])
 
+FIRECRAWL_API_KEY = env('FIRECRAWL_API_KEY', default='')
+
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
@@ -139,8 +139,8 @@ MAILERS = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'My DRF API Project',
-    'DESCRIPTION': 'Comprehensive API documentation for my application.',
-    'VERSION': '1.0.0',
+    'TITLE': 'Yo-kai Mail API',
+    'DESCRIPTION': 'API documentation for Yo-kai Mail.',
+    'VERSION': '0.1.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
