@@ -375,3 +375,38 @@ ledger. Application code also:
 
 The next checkpoint will render EmailDesign deterministically into MJML and
 HTML.
+
+
+## 8. Checkpoint 8A — Deterministic MJML Rendering
+
+Checkpoint 8 removes AI from the rendering step.
+
+```text
+BrandProfile
++
+EmailDesign
++
+AssetInventory
+    -> deterministic renderer
+    -> MJML
+```
+
+Endpoint:
+
+```text
+POST /api/email-rendering/mjml/
+```
+
+The renderer:
+
+- validates BrandProfile and EmailDesign contracts
+- resolves semantic color/font/content-width roles
+- maps asset IDs to real URLs
+- renders supported EmailDesign section types into MJML
+- escapes recipient-facing copy before inserting it into markup
+- allows only HTTP/HTTPS image and CTA URLs
+- does not call an AI provider
+
+Checkpoint 8B will compile the validated MJML into responsive HTML using the
+official MJML compiler. Keeping 8A and 8B separate makes renderer bugs and
+compiler/runtime bugs independently testable.
