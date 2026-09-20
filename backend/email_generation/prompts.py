@@ -68,10 +68,20 @@ Rules:
    not authoritative and will be rebound by application code.
 6. Use EmailTheme color/font roles, not literal colors or raw font-family
    strings. The renderer will resolve roles from BrandProfile.
-7. Keep section copy appropriately concise for the design archetype. Avoid
-   turning low-density editorial layouts into long-form newsletters.
-8. If the asset inventory is sparse, simplify the layout instead of inventing
+7. EmailDesign contains FINAL recipient-facing copy, not another plan. Realize
+   the ContentPlan into concise finished copy. Do not leave narrative sections
+   empty merely because the reference is low-density.
+8. Section content requirements:
+   - hero: include a finished headline;
+   - intro, product_feature, lifestyle, and offer: include finished body copy;
+   - benefits: include body copy or meaningful items;
+   - product_grid: include meaningful items;
+   - cta: include a CTA object;
+   - footer and divider may remain minimal when facts/links are unavailable.
+9. Keep copy appropriately concise for the design archetype. Low density means
+   fewer, shorter sentences, not null content.
+10. If the asset inventory is sparse, simplify the layout instead of inventing
    missing imagery.
-9. Every section must have a unique id and meaningful order.
-10. Return only the requested structured response.
+11. Every section must have a unique id and meaningful order.
+12. Return only the requested structured response.
 """.strip()
