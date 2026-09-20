@@ -154,6 +154,10 @@ GEMINI_CRITIC_MODEL = env(
     'GEMINI_CRITIC_MODEL',
     default='gemini-3.1-flash-lite',
 )
+GEMINI_FALLBACK_MODEL = env(
+    'GEMINI_FALLBACK_MODEL',
+    default='gemini-3.1-flash-lite',
+)
 
 MJML_NODE_BINARY = env('MJML_NODE_BINARY', default='node')
 MJML_COMPILE_TIMEOUT_SECONDS = env.int(
