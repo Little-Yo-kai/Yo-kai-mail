@@ -43,3 +43,16 @@ class ContentPlanRequestSerializer(serializers.Serializer):
                 "ReferenceDesignSpec must contain section_sequence."
             )
         return value
+
+
+
+class EmailDesignRequestSerializer(serializers.Serializer):
+    brand_profile = serializers.DictField()
+    reference_design_spec = serializers.DictField()
+    content_plan = serializers.DictField()
+    asset_inventory = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+    )
+    fact_ledger = serializers.DictField()
