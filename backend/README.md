@@ -12,6 +12,8 @@ Website URL
     -> WebsiteSnapshot
     -> Gemini
     -> BrandProfile
+
+CampaignBrief
 ```
 
 ### 1. Website intelligence
@@ -115,4 +117,54 @@ future rendering/
 
 future delivery/
     HTML -> DeliveryResult
+```
+
+
+## 3. Campaign brief
+
+```text
+POST /api/campaigns/brief/
+```
+
+This checkpoint captures user intent as a stable `CampaignBrief` before any
+email-generation AI is called.
+
+Example:
+
+```json
+{
+  "campaign_type": "product_launch",
+  "goal": "drive_sales",
+  "audience": {
+    "description": "Existing luxury customers"
+  },
+  "product": {
+    "name": "Speedy Bandouliere 20",
+    "url": "https://example.com/products/speedy"
+  },
+  "destination_url": "https://example.com/products/speedy",
+  "additional_instructions": "Keep the copy minimal and refined."
+}
+```
+
+The API validates and normalizes this into:
+
+```text
+CampaignBrief
+```
+
+No Gemini call, persistence, or email rendering happens in this checkpoint.
+
+The next generation stage will consume:
+
+```text
+BrandProfile
++
+CampaignBrief
++
+ReferenceDesignSpec or DesignRecipe
++
+AssetLibrary
+    -> ContentPlan
+    -> EmailDesign
 ```
