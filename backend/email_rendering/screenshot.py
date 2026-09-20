@@ -85,8 +85,6 @@ def capture_email_screenshot(
     if not isinstance(html, str) or not html.strip():
         raise EmailScreenshotError("HTML input is empty.")
 
-    _allowed_asset_hosts(asset_urls or [])
-
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
@@ -97,6 +95,33 @@ def capture_email_screenshot(
                 },
                 device_scale_factor=1,
             )
+
+            image_network_events: list[dict] = []
+
+            def record_response(response):
+                request = response.request
+                if request.resource_type == "image":
+                    image_network_events.append(
+                        {
+                            "url": response.url,
+                            "status": response.status,
+                            "ok": response.ok,
+                        }
+                    )
+
+            def record_failed_request(request):
+                if request.resource_type == "image":
+                    image_network_events.append(
+                        {
+                            "url": request.url,
+                            "status": None,
+                            "ok": False,
+                            "failure": request.failure,
+                        }
+                    )
+
+            page.on("response", record_response)
+            page.on("requestfailed", record_failed_request)
 
             def route_request(route):
                 parsed = urlparse(route.request.url)
@@ -150,9 +175,46 @@ def capture_email_screenshot(
             )
 
             if image_diagnostics["broken"]:
+                relevant_events = [
+                    event
+                    for event in image_network_events
+                    if event.get("url") in image_diagnostics["broken"]
+                    or event.get("ok") is False
+                ]
+
+                diagnostic_parts = []
+                for broken_url in image_diagnostics["broken"]:
+                    matching = [
+                        event
+                        for event in relevant_events
+                        if event.get("url") == broken_url
+                    ]
+
+                    if not matching:
+                        diagnostic_parts.append(
+                            f"{broken_url} [no image response captured]"
+                        )
+                        continue
+
+                    for event in matching:
+                        if event.get("status") is not None:
+                            diagnostic_parts.append(
+                                f"{broken_url} "
+                                f"[HTTP {event['status']}]"
+                            )
+                        elif event.get("failure"):
+                            diagnostic_parts.append(
+                                f"{broken_url} "
+                                f"[{event['failure']}]"
+                            )
+                        else:
+                            diagnostic_parts.append(
+                                f"{broken_url} [request failed]"
+                            )
+
                 raise EmailScreenshotError(
                     "Rendered email contains broken images.",
-                    details=", ".join(image_diagnostics["broken"]),
+                    details="; ".join(diagnostic_parts),
                 )
 
             screenshot_bytes = page.screenshot(
@@ -188,4 +250,5 @@ def capture_email_screenshot(
         "width": dimensions["width"],
         "height": dimensions["height"],
         "image_diagnostics": image_diagnostics,
+        "image_network_events": image_network_events,
     }
