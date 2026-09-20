@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'email_generation',
     'email_rendering',
     'email_visual_qa',
+    'demo_flow',
 ]
 
 MIDDLEWARE = [
