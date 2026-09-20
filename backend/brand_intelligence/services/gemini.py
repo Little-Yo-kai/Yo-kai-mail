@@ -14,7 +14,9 @@ class GeminiNotConfiguredError(RuntimeError):
 
 
 class BrandAnalysisError(RuntimeError):
-    pass
+    def __init__(self, message: str, details: str | None = None):
+        super().__init__(message)
+        self.details = details
 
 
 def _snapshot_for_model(snapshot: dict) -> dict:
@@ -64,13 +66,11 @@ class GeminiBrandService:
             interaction = self.client.interactions.create(
                 model=settings.GEMINI_MODEL,
                 input=prompt,
-                response_format=[
-                    {
-                        "type": "text",
-                        "mime_type": "application/json",
-                        "schema": BrandAnalysis.model_json_schema(),
-                    }
-                ],
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": BrandAnalysis.model_json_schema(),
+                },
             )
             output_text = getattr(interaction, "output_text", None)
             if not output_text:
@@ -81,11 +81,13 @@ class GeminiBrandService:
             raise
         except (ValidationError, ValueError, TypeError) as exc:
             raise BrandAnalysisError(
-                "Gemini returned an invalid BrandProfile response."
+                "Gemini returned an invalid BrandProfile response.",
+                details=str(exc),
             ) from exc
         except Exception as exc:
             raise BrandAnalysisError(
-                "Gemini brand analysis request failed."
+                "Gemini brand analysis request failed.",
+                details=str(exc),
             ) from exc
 
         return build_brand_profile(snapshot, analysis).model_dump(mode="json")
