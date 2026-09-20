@@ -410,3 +410,48 @@ The renderer:
 Checkpoint 8B will compile the validated MJML into responsive HTML using the
 official MJML compiler. Keeping 8A and 8B separate makes renderer bugs and
 compiler/runtime bugs independently testable.
+
+
+## 9. Checkpoint 8B — Responsive HTML Compilation
+
+The HTML endpoint keeps the same request contract as the MJML endpoint:
+
+```text
+BrandProfile
++
+EmailDesign
++
+AssetInventory
+    -> deterministic MJML renderer
+    -> local official MJML compiler
+    -> responsive HTML
+```
+
+Install the pinned compiler once from `backend/`:
+
+```powershell
+cd mjml_runtime
+npm install
+cd ..
+```
+
+Endpoint:
+
+```text
+POST /api/email-rendering/html/
+```
+
+The backend calls the local `mjml_runtime/compile.mjs` process with MJML over
+stdin and receives HTML over stdout. Runtime downloads are never performed
+during a render.
+
+Environment defaults:
+
+```text
+MJML_NODE_BINARY=node
+MJML_COMPILE_TIMEOUT_SECONDS=10
+```
+
+The endpoint returns the compiled HTML, the intermediate MJML, compiler errors,
+the resolved theme, rendered section count, and available asset IDs. The local
+compiler uses strict MJML validation.
