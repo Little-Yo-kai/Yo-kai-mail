@@ -1,4 +1,4 @@
-from .schemas import AssetDescriptor, ContentPlan
+from .schemas import AssetDescriptor, ContentPlan, FactLedger
 
 
 def _append_asset(
@@ -126,3 +126,63 @@ def normalize_content_plan(
         ]
 
     return plan
+
+
+
+def build_fact_ledger(
+    brand_profile: dict,
+    campaign_brief: dict,
+) -> FactLedger:
+    identity = brand_profile.get("identity") or {}
+    product = campaign_brief.get("product") or {}
+    offer = campaign_brief.get("offer") or {}
+
+    verified_facts: list[str] = []
+
+    brand_name = identity.get("name")
+    if isinstance(brand_name, str) and brand_name.strip():
+        verified_facts.append(f"Brand: {brand_name.strip()}")
+
+    product_name = product.get("name")
+    if isinstance(product_name, str) and product_name.strip():
+        verified_facts.append(f"Product name: {product_name.strip()}")
+
+    product_description = product.get("description")
+    if isinstance(product_description, str) and product_description.strip():
+        verified_facts.append(
+            "Product description evidence: " + product_description.strip()
+        )
+
+    offer_facts: list[str] = []
+    offer_type = offer.get("type")
+    if isinstance(offer_type, str) and offer_type and offer_type != "none":
+        offer_facts.append(f"Offer type: {offer_type}")
+
+        for key, label in (
+            ("value", "Offer value"),
+            ("code", "Offer code"),
+            ("details", "Offer details"),
+        ):
+            value = offer.get(key)
+            if isinstance(value, str) and value.strip():
+                offer_facts.append(f"{label}: {value.strip()}")
+
+    return FactLedger(
+        brand_name=brand_name.strip() if isinstance(brand_name, str) else None,
+        product_name=(
+            product_name.strip()
+            if isinstance(product_name, str)
+            else None
+        ),
+        verified_facts=verified_facts,
+        offer_facts=offer_facts,
+        authoritative_destination_url=campaign_destination_url(campaign_brief),
+        forbidden_claim_categories=[
+            "price unless explicitly present in the campaign brief",
+            "availability or stock status unless explicitly present",
+            "deadlines or urgency unless explicitly present",
+            "discounts or promotions unless explicitly present",
+            "materials, dimensions, features, or craftsmanship details beyond provided evidence",
+            "statistics, guarantees, certifications, awards, or testimonials not provided",
+        ],
+    )
