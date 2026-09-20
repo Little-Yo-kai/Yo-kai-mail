@@ -216,3 +216,19 @@ AssetLibrary
     -> ContentPlan
     -> EmailDesign
 ```
+
+
+### Separate Gemini model for reference analysis
+
+Reference-image analysis uses its own model setting:
+
+```text
+GEMINI_REFERENCE_MODEL=gemini-3.1-flash-lite
+```
+
+This keeps high-volume visual/reference analysis separate from the main
+`GEMINI_MODEL` used by Brand Intelligence. It also lets each subsystem be
+tuned for cost, latency, and quota independently.
+
+If a provider rate limit is reached, the reference-design endpoint returns HTTP
+429 instead of reporting it as a generic 502 provider failure.
