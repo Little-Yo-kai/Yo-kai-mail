@@ -149,6 +149,12 @@ GEMINI_GENERATION_MODEL = env(
     default='gemini-3.8-flash',
 )
 
+MJML_NODE_BINARY = env('MJML_NODE_BINARY', default='node')
+MJML_COMPILE_TIMEOUT_SECONDS = env.int(
+    'MJML_COMPILE_TIMEOUT_SECONDS',
+    default=10,
+)
+
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
