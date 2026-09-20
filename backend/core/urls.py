@@ -18,6 +18,7 @@ urlpatterns = [
     path('api/campaigns/', include('campaigns.urls')),
     path('api/reference-design/', include('reference_design.urls')),
     path('api/reference-library/', include('reference_library.urls')),
+    path('api/email-generation/', include('email_generation.urls')),
 
     # API Schema & Documentation Endpoints
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
