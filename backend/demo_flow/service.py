@@ -161,5 +161,5 @@ def generate_phase1_demo(
         raise DemoGenerationError(
             stage=stage,
             message=f"Phase 1 demo failed during {stage}.",
-            details=str(exc),
+            details=getattr(exc, "details", None) or str(exc),
         ) from exc
