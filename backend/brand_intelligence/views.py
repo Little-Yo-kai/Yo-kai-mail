@@ -1,5 +1,6 @@
 import logging
 
+from django.conf import settings
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.response import Response
@@ -39,8 +40,12 @@ class BrandAnalyzeView(APIView):
             )
         except BrandAnalysisError as exc:
             logger.exception("Gemini brand analysis failed")
+            payload = {"success": False, "error": str(exc)}
+            if settings.DEBUG and exc.details:
+                payload["details"] = exc.details
+
             return Response(
-                {"success": False, "error": str(exc)},
+                payload,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
