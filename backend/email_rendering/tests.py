@@ -1,7 +1,12 @@
+import json
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from .compiler import compile_mjml_to_html
 from .renderer import render_email_to_mjml
 
 
@@ -205,3 +210,68 @@ class MJMLRenderApiTests(APITestCase):
             response.data["data"]["resolved_theme"]["content_width"],
             "600px",
         )
+
+
+
+class MJMLCompilerBridgeTests(APITestCase):
+    @patch("email_rendering.compiler.subprocess.run")
+    def test_compiler_returns_html_and_errors(self, run_mock):
+        run_mock.return_value = SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "html": "<!doctype html><html><body>Hello</body></html>",
+                    "errors": [],
+                }
+            ),
+            stderr="",
+        )
+
+        result = compile_mjml_to_html(
+            "<mjml><mj-body></mj-body></mjml>"
+        )
+
+        self.assertIn("<!doctype html>", result["html"])
+        self.assertEqual(result["compiler_errors"], [])
+
+        call = run_mock.call_args
+        self.assertIn("compile.mjs", call.args[0][1])
+        self.assertEqual(
+            call.kwargs["input"],
+            "<mjml><mj-body></mj-body></mjml>",
+        )
+
+
+class HTMLRenderApiTests(APITestCase):
+    @patch("email_rendering.views.compile_mjml_to_html")
+    def test_html_endpoint_renders_then_compiles(self, compile_mock):
+        compile_mock.return_value = {
+            "html": "<!doctype html><html><body>Rendered</body></html>",
+            "compiler_errors": [],
+        }
+
+        response = self.client.post(
+            reverse("email-render-html"),
+            {
+                "brand_profile": sample_brand_profile(),
+                "email_design": sample_email_design(),
+                "asset_inventory": sample_assets(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertIn(
+            "<!doctype html>",
+            response.data["data"]["html"],
+        )
+        self.assertIn(
+            "<mjml>",
+            response.data["data"]["mjml"],
+        )
+        self.assertEqual(
+            response.data["data"]["compiler_errors"],
+            [],
+        )
+        compile_mock.assert_called_once()
