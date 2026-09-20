@@ -35,6 +35,8 @@ def compile_mjml_to_html(mjml: str) -> dict:
             ],
             input=mjml,
             text=True,
+            encoding="utf-8",
+            errors="strict",
             capture_output=True,
             timeout=settings.MJML_COMPILE_TIMEOUT_SECONDS,
             check=False,
