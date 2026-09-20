@@ -6,8 +6,10 @@ from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+from pydantic import ValidationError
 
 from .builders import build_asset_inventory, build_fact_ledger
+from .schemas import EmailDesign
 from .services.composer import GeminiEmailDesignComposer
 from .services.gemini import GeminiCampaignStrategist
 
@@ -448,4 +450,68 @@ class EmailDesignApiTests(APITestCase):
         self.assertEqual(
             response.data["data"]["email_design"]["subject"],
             "An icon, considered anew",
+        )
+
+
+
+class EmailDesignSchemaTests(APITestCase):
+    def test_intro_section_cannot_silently_omit_final_body_copy(self):
+        design = sample_email_design()
+        design["sections"].insert(
+            1,
+            {
+                "id": "intro",
+                "order": 2,
+                "type": "intro",
+                "layout": "centered",
+                "eyebrow": "SEASONAL LEATHER GOODS",
+                "headline": "Monogram Empreinte Gradient",
+                "body": None,
+                "asset_ids": [],
+                "items": [],
+                "cta": None,
+                "style": {
+                    "alignment": "center",
+                    "spacing": "generous",
+                    "background_role": "transparent",
+                },
+            },
+        )
+
+        with self.assertRaises(ValidationError):
+            EmailDesign.model_validate(design)
+
+    def test_product_feature_accepts_concise_finished_body_copy(self):
+        design = sample_email_design()
+        design["sections"].insert(
+            1,
+            {
+                "id": "details",
+                "order": 2,
+                "type": "product_feature",
+                "layout": "centered",
+                "eyebrow": "DESIGN DETAILS",
+                "headline": "Signature Accents",
+                "body": (
+                    "Silver-toned hardware, a signature padlock, and a "
+                    "removable adjustable strap complete the compact design."
+                ),
+                "asset_ids": [],
+                "items": [],
+                "cta": None,
+                "style": {
+                    "alignment": "center",
+                    "spacing": "balanced",
+                    "background_role": "transparent",
+                },
+            },
+        )
+
+        validated = EmailDesign.model_validate(design)
+        self.assertEqual(
+            validated.sections[1].body,
+            (
+                "Silver-toned hardware, a signature padlock, and a "
+                "removable adjustable strap complete the compact design."
+            ),
         )
