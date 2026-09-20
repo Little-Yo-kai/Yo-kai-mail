@@ -137,6 +137,10 @@ CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[
 FIRECRAWL_API_KEY = env('FIRECRAWL_API_KEY', default='')
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
 GEMINI_MODEL = env('GEMINI_MODEL', default='gemini-3.8-flash')
+GEMINI_REFERENCE_MODEL = env(
+    'GEMINI_REFERENCE_MODEL',
+    default='gemini-3.1-flash-lite',
+)
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
