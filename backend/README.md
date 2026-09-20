@@ -168,3 +168,51 @@ AssetLibrary
     -> ContentPlan
     -> EmailDesign
 ```
+
+
+## 4. Reference design analyzer
+
+```text
+POST /api/reference-design/analyze/
+Content-Type: multipart/form-data
+```
+
+Upload one reference marketing-email screenshot as the `image` field.
+
+Supported V0 image types:
+
+- JPEG
+- PNG
+- WebP
+- maximum 15 MB
+
+The endpoint sends the image to Gemini as multimodal input and returns a
+schema-validated `ReferenceDesignSpec`.
+
+The purpose is to reverse-engineer reusable composition, not copy the original
+brand. The spec contains:
+
+- email archetype
+- visual hierarchy
+- section sequence
+- structural copy formula
+- CTA rhythm
+- spacing rhythm
+- design rules
+- reusable principles
+- brand-specific elements that should be ignored during adaptation
+- confidence
+
+The next generation stage will combine:
+
+```text
+BrandProfile
++
+CampaignBrief
++
+ReferenceDesignSpec
++
+AssetLibrary
+    -> ContentPlan
+    -> EmailDesign
+```
