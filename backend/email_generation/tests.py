@@ -39,6 +39,11 @@ def sample_brand_profile():
                 "refined",
                 "exclusive",
             ],
+            "copy_characteristics": {
+                "sentence_length": "medium",
+                "emoji_usage": "none",
+                "formality": "high",
+            },
         },
         "assets": {
             "primary_logo": "https://example.com/logo.svg",
@@ -48,6 +53,7 @@ def sample_brand_profile():
                 "https://example.com/detail.jpg",
             ],
         },
+        "confidence": 0.95,
     }
 
 
