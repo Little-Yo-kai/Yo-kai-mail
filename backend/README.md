@@ -325,3 +325,53 @@ Reliability boundaries:
 
 Checkpoint 7B will consume ContentPlan and produce EmailDesign. The EmailDesign
 v1 schema is already defined in `email_generation/schemas.py`.
+
+
+## 7. Checkpoint 7B — Email Design Composer
+
+The second half of Checkpoint 7 converts approved campaign strategy into a
+structured, renderer-ready EmailDesign.
+
+```text
+BrandProfile
++
+ContentPlan
++
+ReferenceDesignSpec
++
+AssetInventory
++
+FactLedger
+    -> Email Design Composer
+    -> EmailDesign
+```
+
+Endpoint:
+
+```text
+POST /api/email-generation/design/
+```
+
+The composer produces:
+
+- final subject
+- preheader
+- theme roles
+- ordered sections
+- final section copy
+- asset references by asset_id
+- CTA labels and layout choices
+
+It still does NOT produce HTML, MJML, or CSS.
+
+FactLedger is application-owned evidence built from validated campaign inputs.
+The composer is instructed to keep concrete product and offer claims inside this
+ledger. Application code also:
+
+- filters invented asset IDs
+- rebinds every CTA URL to the authoritative destination
+- normalizes section order
+- guarantees unique section IDs
+
+The next checkpoint will render EmailDesign deterministically into MJML and
+HTML.
