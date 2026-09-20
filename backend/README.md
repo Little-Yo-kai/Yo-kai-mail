@@ -587,3 +587,62 @@ If any rendered image has zero natural width or fails to complete, screenshot
 capture raises an error and the Design Critic is not called. Public CDN redirect
 targets are permitted, while localhost, private, link-local, multicast, reserved,
 and unspecified network destinations remain blocked.
+
+
+## Phase 1 Demo Flow
+
+The demo flow exposes the currently working Phase 1 pipeline as one user-facing
+operation without requiring Swagger or manual handoff between internal APIs.
+
+```text
+Website URL
+    -> WebsiteSnapshot
+    -> BrandProfile
+    -> default demo CampaignBrief
+    -> uploaded reference OR internal reference selection
+    -> ContentPlan
+    -> EmailDesign
+    -> deterministic MJML
+    -> responsive HTML
+```
+
+Endpoint:
+
+```text
+POST /api/demo/generate/
+Content-Type: multipart/form-data
+```
+
+Fields:
+
+- `url` — required public website URL
+- `reference_image` — optional JPEG, PNG, or WebP marketing-email reference
+- `additional_instructions` — optional creative direction
+
+URL-only mode uses a conservative generic campaign:
+
+```text
+campaign_type = newsletter
+goal = brand_awareness
+offer = none
+destination = submitted website URL
+```
+
+If no reference image is provided, Yo-kai selects a design direction from the
+internal reference library. If a reference is uploaded, the existing multimodal
+reference analyzer produces the ReferenceDesignSpec instead.
+
+The response includes the structured generation artifacts plus final MJML and
+responsive HTML so the frontend can preview or download the result.
+
+### Deliberately skipped in the demo path
+
+The following remain mandatory Phase 1 work, but do not block the current
+friend/demo workflow:
+
+- asset validation and stable asset hosting
+- visual Design Critic
+- bounded automatic revision loop
+
+They are not removed from the codebase and Phase 1 must not be marked complete
+until they are finished.
