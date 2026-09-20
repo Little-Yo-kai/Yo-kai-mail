@@ -21,6 +21,15 @@ class AssetDescriptor(BaseModel):
     source: Literal["brand_profile", "asset_library", "request"]
 
 
+class FactLedger(BaseModel):
+    brand_name: str | None = None
+    product_name: str | None = None
+    verified_facts: list[str] = Field(default_factory=list)
+    offer_facts: list[str] = Field(default_factory=list)
+    authoritative_destination_url: str | None = None
+    forbidden_claim_categories: list[str] = Field(default_factory=list)
+
+
 class ContentBeat(BaseModel):
     order: int = Field(ge=1)
     role: Literal[
