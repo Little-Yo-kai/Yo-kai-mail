@@ -56,6 +56,22 @@ def _host_is_public(hostname: str) -> bool:
     return True
 
 
+def _detect_image_mime(body: bytes) -> str | None:
+    if body.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if body.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if body.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if (
+        len(body) >= 12
+        and body[:4] == b"RIFF"
+        and body[8:12] == b"WEBP"
+    ):
+        return "image/webp"
+    return None
+
+
 def _allowed_asset_hosts(asset_urls: list[str]) -> set[str]:
     hosts: set[str] = set()
 
@@ -84,6 +100,12 @@ def capture_email_screenshot(
 ) -> dict:
     if not isinstance(html, str) or not html.strip():
         raise EmailScreenshotError("HTML input is empty.")
+
+    allowed_asset_urls = {
+        value
+        for value in (asset_urls or [])
+        if isinstance(value, str) and value.strip()
+    }
 
     try:
         with sync_playwright() as playwright:
@@ -124,21 +146,48 @@ def capture_email_screenshot(
             page.on("requestfailed", record_failed_request)
 
             def route_request(route):
-                parsed = urlparse(route.request.url)
+                request = route.request
+                parsed = urlparse(request.url)
 
                 if parsed.scheme in {"about", "data"}:
                     route.continue_()
                     return
 
                 if (
-                    parsed.scheme in {"http", "https"}
-                    and parsed.hostname
-                    and _host_is_public(parsed.hostname)
+                    parsed.scheme not in {"http", "https"}
+                    or not parsed.hostname
+                    or not _host_is_public(parsed.hostname)
                 ):
-                    route.continue_()
+                    route.abort()
                     return
 
-                route.abort()
+                if (
+                    request.resource_type == "image"
+                    and request.url in allowed_asset_urls
+                ):
+                    try:
+                        response = route.fetch(max_redirects=0)
+                        body = response.body()
+                        detected_mime = _detect_image_mime(body)
+
+                        if response.status == 200 and detected_mime:
+                            route.fulfill(
+                                status=200,
+                                body=body,
+                                headers={
+                                    "content-type": detected_mime,
+                                    "cache-control": "no-store",
+                                },
+                            )
+                            return
+
+                        route.fulfill(response=response)
+                        return
+                    except Exception:
+                        route.continue_()
+                        return
+
+                route.continue_()
 
             page.route("**/*", route_request)
 
