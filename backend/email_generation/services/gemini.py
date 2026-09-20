@@ -4,7 +4,11 @@ from django.conf import settings
 from google import genai
 from pydantic import ValidationError
 
-from ..builders import build_asset_inventory, normalize_content_plan
+from ..builders import (
+    build_asset_inventory,
+    build_fact_ledger,
+    normalize_content_plan,
+)
 from ..prompts import CONTENT_STRATEGIST_PROMPT
 from ..schemas import ContentPlan
 
@@ -46,6 +50,11 @@ class GeminiCampaignStrategist:
             available_assets,
         )
 
+        fact_ledger = build_fact_ledger(
+            brand_profile,
+            campaign_brief,
+        )
+
         input_payload = {
             "brand_profile": brand_profile,
             "campaign_brief": campaign_brief,
@@ -54,6 +63,7 @@ class GeminiCampaignStrategist:
                 asset.model_dump(mode="json")
                 for asset in asset_inventory
             ],
+            "fact_ledger": fact_ledger.model_dump(mode="json"),
         }
 
         prompt = (
@@ -104,4 +114,5 @@ class GeminiCampaignStrategist:
                 asset.model_dump(mode="json")
                 for asset in asset_inventory
             ],
+            "fact_ledger": fact_ledger.model_dump(mode="json"),
         }
