@@ -85,7 +85,7 @@ def capture_email_screenshot(
     if not isinstance(html, str) or not html.strip():
         raise EmailScreenshotError("HTML input is empty.")
 
-    allowed_hosts = _allowed_asset_hosts(asset_urls or [])
+    _allowed_asset_hosts(asset_urls or [])
 
     try:
         with sync_playwright() as playwright:
@@ -108,7 +108,6 @@ def capture_email_screenshot(
                 if (
                     parsed.scheme in {"http", "https"}
                     and parsed.hostname
-                    and parsed.hostname.lower() in allowed_hosts
                     and _host_is_public(parsed.hostname)
                 ):
                     route.continue_()
@@ -132,6 +131,29 @@ def capture_email_screenshot(
             except PlaywrightTimeoutError:
                 # A slow third-party image should not block the whole preview.
                 pass
+
+            image_diagnostics = page.evaluate(
+                """() => {
+                    const images = Array.from(document.images);
+                    return {
+                        total: images.length,
+                        loaded: images.filter(
+                            (img) => img.complete && img.naturalWidth > 0
+                        ).length,
+                        broken: images
+                            .filter(
+                                (img) => !img.complete || img.naturalWidth === 0
+                            )
+                            .map((img) => img.currentSrc || img.src || "")
+                    };
+                }"""
+            )
+
+            if image_diagnostics["broken"]:
+                raise EmailScreenshotError(
+                    "Rendered email contains broken images.",
+                    details=", ".join(image_diagnostics["broken"]),
+                )
 
             screenshot_bytes = page.screenshot(
                 full_page=True,
@@ -165,4 +187,5 @@ def capture_email_screenshot(
         "mime_type": "image/png",
         "width": dimensions["width"],
         "height": dimensions["height"],
+        "image_diagnostics": image_diagnostics,
     }
