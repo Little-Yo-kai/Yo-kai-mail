@@ -283,3 +283,45 @@ Current V0 library families include:
 These are reusable structural directions. They are not pixel copies of third-
 party email creatives, and target-brand assets, colors, copy, and identity must
 come from Yo-kai Mail's own brand/campaign inputs.
+
+
+## 6. Checkpoint 7A — Campaign Strategist / ContentPlan
+
+The first half of Checkpoint 7 converts the stable intelligence inputs into a
+campaign strategy contract before final email copy/layout is composed.
+
+```text
+BrandProfile
++
+CampaignBrief
++
+ReferenceDesignSpec
++
+available assets
+    -> Campaign Strategist
+    -> ContentPlan
+```
+
+Endpoint:
+
+```text
+POST /api/email-generation/plan/
+```
+
+The request accepts `brand_profile`, `campaign_brief`,
+`reference_design_spec`, and optional `available_assets`.
+
+If `available_assets` is omitted, the backend creates a temporary asset
+inventory from BrandProfile assets. This is a bridge until the full AssetLibrary
+subsystem is implemented.
+
+Reliability boundaries:
+
+- Gemini does not generate HTML or MJML.
+- CTA destination URLs are rebound from CampaignBrief after generation.
+- AI-produced asset IDs are filtered against the real asset inventory.
+- Unsupported product claims are explicitly forbidden by the strategist prompt.
+- Provider quota failures return HTTP 429 when detected.
+
+Checkpoint 7B will consume ContentPlan and produce EmailDesign. The EmailDesign
+v1 schema is already defined in `email_generation/schemas.py`.
