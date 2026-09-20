@@ -425,6 +425,117 @@ class GeminiEmailDesignComposerTests(APITestCase):
         )
 
 
+
+    @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
+    def test_invalid_design_gets_one_bounded_repair_attempt(self):
+        invalid_design = sample_email_design()
+        invalid_design["sections"].insert(
+            1,
+            {
+                "id": "intro",
+                "order": 2,
+                "type": "intro",
+                "layout": "centered",
+                "eyebrow": "INTRO",
+                "headline": "The Story",
+                "body": None,
+                "asset_ids": [],
+                "items": [],
+                "cta": None,
+                "style": {
+                    "alignment": "center",
+                    "spacing": "balanced",
+                    "background_role": "transparent",
+                },
+            },
+        )
+        invalid_design["sections"][2]["cta"] = None
+
+        client = Mock()
+        client.interactions.create.side_effect = [
+            SimpleNamespace(
+                output_text=json.dumps(invalid_design)
+            ),
+            SimpleNamespace(
+                output_text=json.dumps(sample_email_design())
+            ),
+        ]
+
+        composer = GeminiEmailDesignComposer(client=client)
+        result = composer.compose(
+            brand_profile=sample_brand_profile(),
+            reference_design_spec={
+                "schema_version": "1.0",
+                "archetype": "Luxury Editorial Product Launch",
+                "summary": "Restrained image-led product launch.",
+                "visual_hierarchy": {
+                    "hero_dominance": "very_high",
+                    "image_to_text_balance": "image_heavy",
+                    "density": "low",
+                    "primary_alignment": "center",
+                },
+                "section_sequence": [
+                    {
+                        "order": 1,
+                        "type": "hero",
+                        "purpose": "Establish aspiration.",
+                        "layout": "Large editorial image.",
+                        "alignment": "center",
+                        "image_usage": "dominant",
+                        "copy_role": "emotional_hook",
+                    }
+                ],
+                "copy_formula": ["aspirational_hook"],
+                "cta_style": {
+                    "frequency": "low",
+                    "placement_pattern": "After persuasion.",
+                    "shape": "rectangular",
+                    "emphasis": "medium",
+                },
+                "spacing_rhythm": {
+                    "overall": "very_generous",
+                    "section_separation": "strong",
+                },
+                "design_rules": {
+                    "background_strategy": "Neutral.",
+                    "color_usage": "Restrained.",
+                    "typography_behavior": "Editorial.",
+                    "image_treatment": "Image-led.",
+                    "mobile_behavior": "Stack.",
+                },
+                "reusable_principles": ["Use restraint."],
+                "brand_specific_elements_to_ignore": [],
+                "confidence": 1.0,
+            },
+            content_plan=sample_content_plan(),
+            asset_inventory=[
+                asset.model_dump(mode="json")
+                for asset in build_asset_inventory(
+                    sample_brand_profile()
+                )
+            ],
+            fact_ledger=sample_fact_ledger(),
+        )
+
+        self.assertEqual(
+            client.interactions.create.call_count,
+            2,
+        )
+        second_prompt = (
+            client.interactions.create.call_args_list[1]
+            .kwargs["input"]
+        )
+        self.assertIn("REPAIR TASK", second_prompt)
+        self.assertIn(
+            "APPLICATION VALIDATION ERRORS",
+            second_prompt,
+        )
+        self.assertEqual(
+            result["email_design"]["subject"],
+            sample_email_design()["subject"],
+        )
+
+
 class EmailDesignApiTests(APITestCase):
     @patch("email_generation.views.GeminiEmailDesignComposer")
     def test_design_endpoint_returns_email_design(self, composer_class):
