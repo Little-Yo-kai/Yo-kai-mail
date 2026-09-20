@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     # Local apps
     'website_intelligence',
     'brand_intelligence',
+    'campaigns',
 ]
 
 MIDDLEWARE = [
