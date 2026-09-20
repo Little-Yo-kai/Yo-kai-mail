@@ -186,3 +186,48 @@ def build_fact_ledger(
             "statistics, guarantees, certifications, awards, or testimonials not provided",
         ],
     )
+
+
+
+def normalize_email_design(
+    design,
+    *,
+    asset_inventory: list[AssetDescriptor],
+    fact_ledger: FactLedger,
+):
+    allowed_asset_ids = {asset.asset_id for asset in asset_inventory}
+    authoritative_url = fact_ledger.authoritative_destination_url
+
+    seen_ids: set[str] = set()
+    normalized_sections = []
+
+    for index, section in enumerate(
+        sorted(design.sections, key=lambda item: item.order),
+        start=1,
+    ):
+        section.order = index
+
+        if section.id in seen_ids:
+            section.id = f"{section.type}_{index}"
+        seen_ids.add(section.id)
+
+        section.asset_ids = [
+            asset_id
+            for asset_id in section.asset_ids
+            if asset_id in allowed_asset_ids
+        ]
+
+        if section.cta is not None:
+            section.cta.url = authoritative_url
+
+        for item in section.items:
+            if item.asset_id not in allowed_asset_ids:
+                item.asset_id = None
+
+            if item.cta is not None:
+                item.cta.url = authoritative_url
+
+        normalized_sections.append(section)
+
+    design.sections = normalized_sections
+    return design
