@@ -39,7 +39,6 @@ INSTALLED_APPS = [
     'reference_design',
     'reference_library',
     'email_generation',
-    'email_generation',
 ]
 
 MIDDLEWARE = [
