@@ -20,6 +20,7 @@ urlpatterns = [
     path('api/reference-library/', include('reference_library.urls')),
     path('api/email-generation/', include('email_generation.urls')),
     path('api/email-rendering/', include('email_rendering.urls')),
+    path('api/email-visual-qa/', include('email_visual_qa.urls')),
 
     # API Schema & Documentation Endpoints
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
