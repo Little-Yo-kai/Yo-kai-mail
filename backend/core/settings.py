@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'reference_library',
     'email_generation',
     'email_rendering',
+    'email_visual_qa',
 ]
 
 MIDDLEWARE = [
@@ -147,6 +148,10 @@ GEMINI_REFERENCE_MODEL = env(
 GEMINI_GENERATION_MODEL = env(
     'GEMINI_GENERATION_MODEL',
     default='gemini-3.8-flash',
+)
+GEMINI_CRITIC_MODEL = env(
+    'GEMINI_CRITIC_MODEL',
+    default='gemini-3.1-flash-lite',
 )
 
 MJML_NODE_BINARY = env('MJML_NODE_BINARY', default='node')
