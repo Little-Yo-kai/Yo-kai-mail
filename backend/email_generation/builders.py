@@ -39,7 +39,9 @@ def build_asset_inventory(
 
     for item in available_assets or []:
         try:
-            asset = AssetDescriptor.model_validate(item)
+            candidate = dict(item)
+            candidate.setdefault("source", "request")
+            asset = AssetDescriptor.model_validate(candidate)
         except Exception:
             continue
 
