@@ -73,7 +73,8 @@ Rules:
    empty merely because the reference is low-density.
 8. Section content requirements:
    - hero: include a finished headline;
-   - intro, product_feature, lifestyle, and offer: include finished body copy;
+   - intro, lifestyle, and offer: include finished body copy;
+   - product_feature: include finished body copy or meaningful feature items;
    - benefits: include body copy or meaningful items;
    - product_grid: include meaningful items;
    - cta: include a CTA object;
