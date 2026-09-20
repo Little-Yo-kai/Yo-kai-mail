@@ -117,7 +117,7 @@ class ContentPlan(BaseModel):
 
 class EmailCTA(BaseModel):
     label: str
-    url: str
+    url: str | None = None
 
 
 class EmailSectionItem(BaseModel):
