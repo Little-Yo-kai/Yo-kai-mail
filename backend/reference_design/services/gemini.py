@@ -38,7 +38,7 @@ class GeminiReferenceDesignService:
 
         try:
             interaction = self.client.interactions.create(
-                model=settings.GEMINI_MODEL,
+                model=settings.GEMINI_REFERENCE_MODEL,
                 input=[
                     {
                         "type": "text",
