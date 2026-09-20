@@ -305,6 +305,11 @@ class DesignCritiqueApiTests(APITestCase):
             "mime_type": "image/png",
             "width": 760,
             "height": 953,
+            "image_diagnostics": {
+                "total": 1,
+                "loaded": 1,
+                "broken": [],
+            },
         }
         critic_class.return_value.critique.return_value = sample_critique()
 
@@ -327,6 +332,14 @@ class DesignCritiqueApiTests(APITestCase):
         self.assertEqual(
             response.data["data"]["render_metadata"]["width"],
             760,
+        )
+        self.assertEqual(
+            response.data["data"]["render_metadata"]["image_diagnostics"],
+            {
+                "total": 1,
+                "loaded": 1,
+                "broken": [],
+            },
         )
         self.assertNotIn(
             "image_base64",
