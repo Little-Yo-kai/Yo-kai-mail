@@ -7,7 +7,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .builders import build_asset_inventory
+from .builders import build_asset_inventory, build_fact_ledger
+from .services.composer import GeminiEmailDesignComposer
 from .services.gemini import GeminiCampaignStrategist
 
 
@@ -246,5 +247,199 @@ class ContentPlanApiTests(APITestCase):
         self.assertTrue(response.data["success"])
         self.assertEqual(
             response.data["data"]["content_plan"]["campaign_angle"],
+            "An icon, considered anew",
+        )
+
+
+
+def sample_fact_ledger():
+    return build_fact_ledger(
+        sample_brand_profile(),
+        sample_campaign_brief(),
+    ).model_dump(mode="json")
+
+
+def sample_email_design():
+    return {
+        "schema_version": "1.0",
+        "subject": "An icon, considered anew",
+        "preheader": "Discover the Speedy Bandouliere 20.",
+        "theme": {
+            "content_width": "standard",
+            "heading_font_role": "brand_heading",
+            "body_font_role": "brand_body",
+            "primary_color_role": "text_primary",
+            "background_color_role": "background",
+            "button_color_role": "text_primary",
+        },
+        "sections": [
+            {
+                "id": "hero",
+                "order": 1,
+                "type": "hero",
+                "layout": "full_width",
+                "eyebrow": "Speedy Bandouliere 20",
+                "headline": "An Icon, Reimagined",
+                "body": "A compact expression in Monogram Empreinte leather.",
+                "asset_ids": ["og_image", "invented_asset"],
+                "items": [],
+                "cta": None,
+                "style": {
+                    "alignment": "center",
+                    "spacing": "very_generous",
+                    "background_role": "brand_background",
+                },
+            },
+            {
+                "id": "hero",
+                "order": 4,
+                "type": "cta",
+                "layout": "minimal",
+                "eyebrow": None,
+                "headline": None,
+                "body": None,
+                "asset_ids": [],
+                "items": [],
+                "cta": {
+                    "label": "Discover the Creation",
+                    "url": "https://hallucinated.example",
+                },
+                "style": {
+                    "alignment": "center",
+                    "spacing": "generous",
+                    "background_role": "transparent",
+                },
+            },
+        ],
+    }
+
+
+class FactLedgerTests(APITestCase):
+    def test_fact_ledger_is_built_only_from_validated_inputs(self):
+        ledger = build_fact_ledger(
+            sample_brand_profile(),
+            sample_campaign_brief(),
+        )
+
+        self.assertEqual(ledger.brand_name, "Louis Vuitton")
+        self.assertEqual(
+            ledger.authoritative_destination_url,
+            "https://example.com/product",
+        )
+        self.assertTrue(
+            any(
+                "A compact handbag." in fact
+                for fact in ledger.verified_facts
+            )
+        )
+
+
+class GeminiEmailDesignComposerTests(APITestCase):
+    @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
+    def test_design_is_schema_validated_and_application_normalized(self):
+        client = Mock()
+        client.interactions.create.return_value = SimpleNamespace(
+            output_text=json.dumps(sample_email_design())
+        )
+
+        composer = GeminiEmailDesignComposer(client=client)
+        result = composer.compose(
+            brand_profile=sample_brand_profile(),
+            reference_design_spec={
+                "schema_version": "1.0",
+                "archetype": "Luxury Editorial Product Launch",
+                "summary": "Restrained image-led product launch.",
+                "visual_hierarchy": {
+                    "hero_dominance": "very_high",
+                    "image_to_text_balance": "image_heavy",
+                    "density": "low",
+                    "primary_alignment": "center",
+                },
+                "section_sequence": [
+                    {
+                        "order": 1,
+                        "type": "hero",
+                        "purpose": "Establish aspiration.",
+                        "layout": "Large editorial image.",
+                        "alignment": "center",
+                        "image_usage": "dominant",
+                        "copy_role": "emotional_hook",
+                    }
+                ],
+                "copy_formula": ["aspirational_hook"],
+                "cta_style": {
+                    "frequency": "low",
+                    "placement_pattern": "After persuasion.",
+                    "shape": "rectangular",
+                    "emphasis": "medium",
+                },
+                "spacing_rhythm": {
+                    "overall": "very_generous",
+                    "section_separation": "strong",
+                },
+                "design_rules": {
+                    "background_strategy": "Neutral.",
+                    "color_usage": "Restrained.",
+                    "typography_behavior": "Editorial.",
+                    "image_treatment": "Image-led.",
+                    "mobile_behavior": "Stack.",
+                },
+                "reusable_principles": ["Use restraint."],
+                "brand_specific_elements_to_ignore": [],
+                "confidence": 1.0,
+            },
+            content_plan=sample_content_plan(),
+            asset_inventory=[
+                asset.model_dump(mode="json")
+                for asset in build_asset_inventory(sample_brand_profile())
+            ],
+            fact_ledger=sample_fact_ledger(),
+        )
+
+        design = result["email_design"]
+        self.assertEqual(design["sections"][0]["asset_ids"], ["og_image"])
+        self.assertEqual(design["sections"][0]["order"], 1)
+        self.assertEqual(design["sections"][1]["order"], 2)
+        self.assertNotEqual(
+            design["sections"][0]["id"],
+            design["sections"][1]["id"],
+        )
+        self.assertEqual(
+            design["sections"][1]["cta"]["url"],
+            "https://example.com/product",
+        )
+
+        call = client.interactions.create.call_args.kwargs
+        self.assertEqual(call["model"], "gemini-test")
+        self.assertEqual(
+            call["response_format"]["mime_type"],
+            "application/json",
+        )
+
+
+class EmailDesignApiTests(APITestCase):
+    @patch("email_generation.views.GeminiEmailDesignComposer")
+    def test_design_endpoint_returns_email_design(self, composer_class):
+        composer_class.return_value.compose.return_value = {
+            "email_design": sample_email_design(),
+            "asset_inventory": [],
+        }
+
+        response = self.client.post(
+            reverse("email-design"),
+            {
+                "brand_profile": sample_brand_profile(),
+                "reference_design_spec": sample_reference_spec(),
+                "content_plan": sample_content_plan(),
+                "asset_inventory": [],
+                "fact_ledger": sample_fact_ledger(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(
+            response.data["data"]["email_design"]["subject"],
             "An icon, considered anew",
         )
