@@ -277,3 +277,57 @@ class HTMLRenderApiTests(APITestCase):
             [],
         )
         compile_mock.assert_called_once()
+
+
+
+class EmailScreenshotApiTests(APITestCase):
+    @patch("email_rendering.views.capture_email_screenshot")
+    @patch("email_rendering.views.compile_mjml_to_html")
+    def test_screenshot_endpoint_renders_compiles_and_captures(
+        self,
+        compile_mock,
+        capture_mock,
+    ):
+        compile_mock.return_value = {
+            "html": "<!doctype html><html><body>Rendered</body></html>",
+            "compiler_errors": [],
+        }
+        capture_mock.return_value = {
+            "image_base64": "iVBORw0KGgoAAAANSUhEUg==",
+            "mime_type": "image/png",
+            "width": 760,
+            "height": 1400,
+        }
+
+        response = self.client.post(
+            reverse("email-render-screenshot"),
+            {
+                "brand_profile": sample_brand_profile(),
+                "email_design": sample_email_design(),
+                "asset_inventory": sample_assets(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(
+            response.data["data"]["screenshot"]["mime_type"],
+            "image/png",
+        )
+        self.assertEqual(
+            response.data["data"]["screenshot"]["width"],
+            760,
+        )
+        self.assertEqual(
+            response.data["data"]["compiler_errors"],
+            [],
+        )
+
+        capture_mock.assert_called_once()
+        call = capture_mock.call_args
+        self.assertIn("<!doctype html>", call.args[0])
+        self.assertEqual(
+            call.kwargs["asset_urls"],
+            ["https://example.com/product.jpg"],
+        )
