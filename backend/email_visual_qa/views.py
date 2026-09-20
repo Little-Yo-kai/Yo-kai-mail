@@ -88,6 +88,9 @@ class DesignCritiqueView(APIView):
                     "available_asset_ids": render_result[
                         "available_asset_ids"
                     ],
+                    "image_diagnostics": screenshot_result[
+                        "image_diagnostics"
+                    ],
                 },
             )
         except EmailRenderInputError as exc:
@@ -161,6 +164,9 @@ class DesignCritiqueView(APIView):
                         "width": screenshot_result["width"],
                         "height": screenshot_result["height"],
                         "mime_type": screenshot_result["mime_type"],
+                        "image_diagnostics": screenshot_result[
+                            "image_diagnostics"
+                        ],
                     },
                     "compiler_errors": compile_result[
                         "compiler_errors"
