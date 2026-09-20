@@ -1,6 +1,7 @@
 import json
 
 from django.conf import settings
+from core.ai_fallback import call_with_model_fallback
 from google import genai
 from pydantic import ValidationError
 
@@ -36,8 +37,10 @@ class GeminiEmailDesignComposer:
         self.client = genai.Client(api_key=api_key)
 
     def _request_design(self, prompt: str) -> str:
-        interaction = self.client.interactions.create(
-            model=settings.GEMINI_GENERATION_MODEL,
+        interaction = call_with_model_fallback(
+            self.client.interactions.create,
+            primary_model=settings.GEMINI_GENERATION_MODEL,
+            fallback_model=settings.GEMINI_FALLBACK_MODEL,
             input=prompt,
             response_format={
                 "type": "text",
