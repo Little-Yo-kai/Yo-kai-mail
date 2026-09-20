@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class WebsiteImportView(APIView):
+    serializer_class = WebsiteImportRequestSerializer
     @extend_schema(
         request=WebsiteImportRequestSerializer,
         summary="Import and normalize a website",
