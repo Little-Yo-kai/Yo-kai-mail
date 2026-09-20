@@ -15,6 +15,7 @@ urlpatterns = [
     # Website intelligence
     path('api/website/', include('website_intelligence.urls')),
     path('api/brand/', include('brand_intelligence.urls')),
+    path('api/campaigns/', include('campaigns.urls')),
 
     # API Schema & Documentation Endpoints
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
