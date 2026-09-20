@@ -455,3 +455,53 @@ MJML_COMPILE_TIMEOUT_SECONDS=10
 The endpoint returns the compiled HTML, the intermediate MJML, compiler errors,
 the resolved theme, rendered section count, and available asset IDs. The local
 compiler uses strict MJML validation.
+
+
+## 10. Checkpoint 9A — Browser Screenshot
+
+Checkpoint 9 begins visual QA. The first stage renders the final responsive HTML
+inside a real headless Chromium browser and captures the full email as PNG.
+
+```text
+BrandProfile
++
+EmailDesign
++
+AssetInventory
+    -> MJML
+    -> responsive HTML
+    -> headless Chromium
+    -> PNG screenshot
+```
+
+Python Playwright is used for browser orchestration. After pulling this
+checkpoint, install dependencies and the Chromium runtime once:
+
+```powershell
+uv sync
+uv run playwright install chromium
+```
+
+Endpoint:
+
+```text
+POST /api/email-rendering/screenshot/
+```
+
+The request body is identical to the MJML and HTML rendering endpoints.
+
+The response contains:
+
+- PNG bytes encoded as base64
+- MIME type
+- rendered browser width and full-page height
+- MJML compiler errors
+- rendered section count
+- available asset IDs
+
+The screenshot browser does not receive unrestricted network access. Remote
+requests are restricted to public hosts represented in the provided
+AssetInventory; localhost and private-network destinations are rejected.
+
+The next stage, Checkpoint 9B, will give the rendered screenshot and design
+reference to a structured visual Design Critic.
