@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'website_intelligence',
     'brand_intelligence',
     'campaigns',
+    'reference_design',
 ]
 
 MIDDLEWARE = [
