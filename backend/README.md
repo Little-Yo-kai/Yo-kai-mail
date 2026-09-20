@@ -505,3 +505,61 @@ AssetInventory; localhost and private-network destinations are rejected.
 
 The next stage, Checkpoint 9B, will give the rendered screenshot and design
 reference to a structured visual Design Critic.
+
+
+## 11. Checkpoint 9B — Structured Visual Design Critic
+
+Checkpoint 9B keeps the screenshot inside the backend and sends it to a
+multimodal design critic together with the structured design context.
+
+```text
+BrandProfile
++
+EmailDesign
++
+ReferenceDesignSpec
++
+AssetInventory
+    -> deterministic MJML
+    -> responsive HTML
+    -> Chromium screenshot
+    -> multimodal Design Critic
+    -> DesignCritique
+```
+
+Endpoint:
+
+```text
+POST /api/email-visual-qa/critique/
+```
+
+Request fields:
+
+- `brand_profile`
+- `email_design`
+- `reference_design_spec`
+- optional `asset_inventory`
+
+The screenshot is regenerated internally. Clients do not need to send the large
+base64 PNG produced by the screenshot debugging endpoint.
+
+The critic returns a schema-validated `DesignCritique` containing:
+
+- whether a meaningful revision is needed
+- a short visual summary
+- visible strengths
+- structured issues with category, severity, affected section IDs, observation,
+  reason, and an actionable EmailDesign-level recommendation
+- prioritized visual changes
+
+The critic is explicitly limited to visual/design feedback. It must not generate
+HTML/MJML/CSS or invent/fact-check product claims.
+
+The critic model is configured separately:
+
+```text
+GEMINI_CRITIC_MODEL=gemini-3.1-flash-lite
+```
+
+Checkpoint 9C will consume `DesignCritique` and create one bounded revised
+EmailDesign. The revision loop will have a hard maximum iteration count.
