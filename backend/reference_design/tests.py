@@ -87,7 +87,7 @@ def sample_image():
 
 
 class GeminiReferenceDesignServiceTests(APITestCase):
-    @override_settings(GEMINI_MODEL="gemini-test")
+    @override_settings(GEMINI_REFERENCE_MODEL="gemini-test")
     def test_image_and_schema_are_sent_to_gemini(self):
         client = Mock()
         client.interactions.create.return_value = SimpleNamespace(
