@@ -240,6 +240,8 @@ class MJMLCompilerBridgeTests(APITestCase):
             call.kwargs["input"],
             "<mjml><mj-body></mj-body></mjml>",
         )
+        self.assertEqual(call.kwargs["encoding"], "utf-8")
+        self.assertEqual(call.kwargs["errors"], "strict")
 
 
 class HTMLRenderApiTests(APITestCase):
