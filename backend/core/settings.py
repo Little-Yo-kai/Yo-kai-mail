@@ -152,4 +152,7 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'API documentation for Yo-kai Mail.',
     'VERSION': '0.1.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    # File fields have different request/response representations.
+    # Splitting them lets Swagger render multipart FileField inputs correctly.
+    'COMPONENT_SPLIT_REQUEST': True,
 }
