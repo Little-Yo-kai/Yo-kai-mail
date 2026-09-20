@@ -1,3 +1,4 @@
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.response import Response
@@ -10,6 +11,8 @@ from .serializers import ReferenceSelectionRequestSerializer
 
 class ReferenceLibraryListView(APIView):
     @extend_schema(
+        request=None,
+        responses=OpenApiTypes.OBJECT,
         summary="List curated internal reference directions",
         description=(
             "Lists Yo-kai Mail's reusable internal reference directions. "
