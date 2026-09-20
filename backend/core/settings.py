@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'campaigns',
     'reference_design',
     'reference_library',
+    'email_generation',
 ]
 
 MIDDLEWARE = [
@@ -141,6 +142,10 @@ GEMINI_MODEL = env('GEMINI_MODEL', default='gemini-3.8-flash')
 GEMINI_REFERENCE_MODEL = env(
     'GEMINI_REFERENCE_MODEL',
     default='gemini-3.1-flash-lite',
+)
+GEMINI_GENERATION_MODEL = env(
+    'GEMINI_GENERATION_MODEL',
+    default='gemini-3.8-flash',
 )
 
 # Email
