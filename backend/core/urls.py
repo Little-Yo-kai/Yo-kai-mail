@@ -17,6 +17,7 @@ urlpatterns = [
     path('api/brand/', include('brand_intelligence.urls')),
     path('api/campaigns/', include('campaigns.urls')),
     path('api/reference-design/', include('reference_design.urls')),
+    path('api/reference-library/', include('reference_library.urls')),
 
     # API Schema & Documentation Endpoints
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
