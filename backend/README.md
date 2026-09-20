@@ -563,3 +563,27 @@ GEMINI_CRITIC_MODEL=gemini-3.1-flash-lite
 
 Checkpoint 9C will consume `DesignCritique` and create one bounded revised
 EmailDesign. The revision loop will have a hard maximum iteration count.
+
+
+### Image-load validation before critique
+
+Visual critique is only meaningful when the browser rendered the assets
+successfully. Before a screenshot is accepted, Yo-kai Mail now inspects every
+rendered `<img>` element.
+
+A valid screenshot must report:
+
+```json
+{
+  "image_diagnostics": {
+    "total": 1,
+    "loaded": 1,
+    "broken": []
+  }
+}
+```
+
+If any rendered image has zero natural width or fails to complete, screenshot
+capture raises an error and the Design Critic is not called. Public CDN redirect
+targets are permitted, while localhost, private, link-local, multicast, reserved,
+and unspecified network destinations remain blocked.
