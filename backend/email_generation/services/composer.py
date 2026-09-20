@@ -35,6 +35,61 @@ class GeminiEmailDesignComposer:
 
         self.client = genai.Client(api_key=api_key)
 
+    def _request_design(self, prompt: str) -> str:
+        interaction = self.client.interactions.create(
+            model=settings.GEMINI_GENERATION_MODEL,
+            input=prompt,
+            response_format={
+                "type": "text",
+                "mime_type": "application/json",
+                "schema": EmailDesign.model_json_schema(),
+            },
+        )
+
+        output_text = getattr(interaction, "output_text", None)
+        if not output_text:
+            raise EmailDesignGenerationError(
+                "Gemini returned an empty EmailDesign."
+            )
+
+        return output_text
+
+    @staticmethod
+    def _repair_prompt(
+        *,
+        original_prompt: str,
+        invalid_output: str,
+        validation_error: Exception,
+    ) -> str:
+        if isinstance(validation_error, ValidationError):
+            error_payload = validation_error.errors(include_url=False)
+        else:
+            error_payload = [
+                {
+                    "type": type(validation_error).__name__,
+                    "message": str(validation_error),
+                }
+            ]
+
+        return (
+            original_prompt
+            + "\n\nREPAIR TASK:\n"
+            + "Your previous EmailDesign did not satisfy the required "
+            + "application contract. Repair the EmailDesign only. Preserve "
+            + "the approved campaign strategy, factual boundaries, asset "
+            + "constraints, section intent, and recipient-facing meaning. "
+            + "Do not remove required content merely to satisfy validation. "
+            + "Return a complete replacement EmailDesign, not a patch.\n\n"
+            + "PREVIOUS INVALID EMAILDESIGN:\n"
+            + invalid_output
+            + "\n\nAPPLICATION VALIDATION ERRORS:\n"
+            + json.dumps(
+                error_payload,
+                ensure_ascii=False,
+                default=str,
+            )
+        )
+
     def compose(
         self,
         *,
@@ -79,23 +134,35 @@ class GeminiEmailDesignComposer:
         )
 
         try:
-            interaction = self.client.interactions.create(
-                model=settings.GEMINI_GENERATION_MODEL,
-                input=prompt,
-                response_format={
-                    "type": "text",
-                    "mime_type": "application/json",
-                    "schema": EmailDesign.model_json_schema(),
-                },
-            )
+            output_text = self._request_design(prompt)
 
-            output_text = getattr(interaction, "output_text", None)
-            if not output_text:
-                raise EmailDesignGenerationError(
-                    "Gemini returned an empty EmailDesign."
+            try:
+                design = EmailDesign.model_validate_json(output_text)
+            except (ValidationError, ValueError, TypeError) as first_error:
+                repair_prompt = self._repair_prompt(
+                    original_prompt=prompt,
+                    invalid_output=output_text,
+                    validation_error=first_error,
                 )
+                repaired_output = self._request_design(repair_prompt)
 
-            design = EmailDesign.model_validate_json(output_text)
+                try:
+                    design = EmailDesign.model_validate_json(
+                        repaired_output
+                    )
+                except (
+                    ValidationError,
+                    ValueError,
+                    TypeError,
+                ) as repair_error:
+                    raise EmailDesignGenerationError(
+                        (
+                            "Gemini returned an invalid EmailDesign after "
+                            "one repair attempt."
+                        ),
+                        details=str(repair_error),
+                    ) from repair_error
+
             design = normalize_email_design(
                 design,
                 asset_inventory=assets,
@@ -103,11 +170,6 @@ class GeminiEmailDesignComposer:
             )
         except EmailDesignGenerationError:
             raise
-        except (ValidationError, ValueError, TypeError) as exc:
-            raise EmailDesignGenerationError(
-                "Gemini returned an invalid EmailDesign.",
-                details=str(exc),
-            ) from exc
         except Exception as exc:
             raise EmailDesignGenerationError(
                 "Gemini email design request failed.",
