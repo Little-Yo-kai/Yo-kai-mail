@@ -592,6 +592,43 @@ class EmailDesignSchemaTests(APITestCase):
         with self.assertRaises(ValidationError):
             EmailDesign.model_validate(design)
 
+
+    def test_product_feature_accepts_meaningful_items_without_body(self):
+        design = sample_email_design()
+        design["sections"].insert(
+            1,
+            {
+                "id": "details",
+                "order": 2,
+                "type": "product_feature",
+                "layout": "stacked",
+                "eyebrow": "FEATURES",
+                "headline": "Creative Focus",
+                "body": None,
+                "asset_ids": [],
+                "items": [
+                    {
+                        "title": "High-performance energy",
+                        "body": None,
+                        "asset_id": None,
+                        "cta": None,
+                    }
+                ],
+                "cta": None,
+                "style": {
+                    "alignment": "center",
+                    "spacing": "balanced",
+                    "background_role": "transparent",
+                },
+            },
+        )
+
+        validated = EmailDesign.model_validate(design)
+        self.assertEqual(
+            validated.sections[1].items[0].title,
+            "High-performance energy",
+        )
+
     def test_product_feature_accepts_concise_finished_body_copy(self):
         design = sample_email_design()
         design["sections"].insert(
