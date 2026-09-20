@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class ReferenceDesignAnalyzeView(APIView):
+    serializer_class = ReferenceDesignAnalyzeSerializer
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
@@ -47,9 +48,19 @@ class ReferenceDesignAnalyzeView(APIView):
             if settings.DEBUG and exc.details:
                 payload["details"] = exc.details
 
+            detail_text = (exc.details or "").lower()
+            response_status = status.HTTP_502_BAD_GATEWAY
+            if (
+                "rate limit" in detail_text
+                or "too_many_requests" in detail_text
+                or "error code: 429" in detail_text
+            ):
+                response_status = status.HTTP_429_TOO_MANY_REQUESTS
+                payload["error"] = "Gemini reference design rate limit exceeded."
+
             return Response(
                 payload,
-                status=status.HTTP_502_BAD_GATEWAY,
+                status=response_status,
             )
 
         return Response(
