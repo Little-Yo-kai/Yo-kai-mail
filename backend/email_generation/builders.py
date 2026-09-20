@@ -208,7 +208,12 @@ def normalize_email_design(
         section.order = index
 
         if section.id in seen_ids:
-            section.id = f"{section.type}_{index}"
+            candidate_id = f"{section.type}_{index}"
+            suffix = 2
+            while candidate_id in seen_ids:
+                candidate_id = f"{section.type}_{index}_{suffix}"
+                suffix += 1
+            section.id = candidate_id
         seen_ids.add(section.id)
 
         section.asset_ids = [
