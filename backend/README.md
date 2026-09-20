@@ -232,3 +232,54 @@ tuned for cost, latency, and quota independently.
 
 If a provider rate limit is reached, the reference-design endpoint returns HTTP
 429 instead of reporting it as a generic 502 provider failure.
+
+
+## 5. Curated internal reference library
+
+When a user does not upload a design reference, Yo-kai Mail can choose a
+curated internal design direction without making another AI request.
+
+```text
+BrandProfile
++
+CampaignBrief
+    -> deterministic Reference Selector
+    -> internal reference
+    -> ReferenceDesignSpec
+```
+
+Endpoints:
+
+```text
+GET  /api/reference-library/
+POST /api/reference-library/select/
+```
+
+The selector considers:
+
+- campaign type
+- campaign goal
+- brand industry
+- brand tone
+- whether an offer exists
+- whether a product is defined
+- whether the currently available image assets can support the layout
+
+The selected result uses the same `ReferenceDesignSpec` contract as a
+user-uploaded reference. This means downstream generation does not need to know
+where the design direction came from.
+
+Current V0 library families include:
+
+- luxury editorial product launch
+- seasonal collection showcase
+- feature-led product launch
+- bold promotional sale
+- lifestyle story
+- educational / benefit-led
+- catalog promotion
+- general brand story
+
+These are reusable structural directions. They are not pixel copies of third-
+party email creatives, and target-brand assets, colors, copy, and identity must
+come from Yo-kai Mail's own brand/campaign inputs.
