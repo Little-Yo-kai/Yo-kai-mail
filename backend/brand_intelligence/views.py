@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class BrandAnalyzeView(APIView):
+    serializer_class = BrandAnalysisRequestSerializer
     @extend_schema(
         request=BrandAnalysisRequestSerializer,
         summary="Analyze a WebsiteSnapshot with Gemini",
