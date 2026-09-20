@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 AssetKind = Literal[
@@ -115,6 +115,22 @@ class ContentPlan(BaseModel):
     claim_constraints: list[str] = Field(default_factory=list)
 
 
+
+
+def _has_text(value: str | None) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _has_meaningful_items(items: list["EmailSectionItem"]) -> bool:
+    return any(
+        _has_text(item.title)
+        or _has_text(item.body)
+        or item.asset_id is not None
+        or item.cta is not None
+        for item in items
+    )
+
+
 class EmailCTA(BaseModel):
     label: str
     url: str | None = None
@@ -173,6 +189,33 @@ class EmailSection(BaseModel):
     items: list[EmailSectionItem] = Field(default_factory=list)
     cta: EmailCTA | None = None
     style: SectionStyle
+
+    @model_validator(mode="after")
+    def validate_section_content(self):
+        if self.type == "hero" and not _has_text(self.headline):
+            raise ValueError("Hero sections require a headline.")
+
+        if self.type in {"intro", "product_feature", "lifestyle", "offer"}:
+            if not _has_text(self.body):
+                raise ValueError(
+                    f"{self.type} sections require final body copy."
+                )
+
+        if self.type == "benefits":
+            if not _has_text(self.body) and not _has_meaningful_items(self.items):
+                raise ValueError(
+                    "Benefits sections require body copy or populated items."
+                )
+
+        if self.type == "product_grid" and not _has_meaningful_items(self.items):
+            raise ValueError(
+                "Product grid sections require populated items."
+            )
+
+        if self.type == "cta" and self.cta is None:
+            raise ValueError("CTA sections require a CTA object.")
+
+        return self
 
 
 class EmailTheme(BaseModel):
