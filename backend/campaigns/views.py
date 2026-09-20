@@ -8,6 +8,7 @@ from .serializers import CampaignBriefSerializer
 
 
 class CampaignBriefView(APIView):
+    serializer_class = CampaignBriefSerializer
     @extend_schema(
         request=CampaignBriefSerializer,
         summary="Validate and normalize a campaign brief",
