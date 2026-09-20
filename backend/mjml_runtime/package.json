@@ -1,0 +1,9 @@
+{
+  "name": "yo-kai-mail-mjml-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "mjml": "5.4.1"
+  }
+}
