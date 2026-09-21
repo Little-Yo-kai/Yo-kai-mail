@@ -85,3 +85,65 @@ class TestEmailSendView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+
+class TestEmailStatusView(APIView):
+    @extend_schema(
+        request=None,
+        summary="Get Resend status for a test email",
+        description=(
+            "Retrieves the latest provider event for one previously sent "
+            "test email."
+        ),
+    )
+    def get(self, request, email_id: str):
+        if not settings.RESEND_TEST_SEND_ENABLED:
+            return Response(
+                {
+                    "success": False,
+                    "error": "Test email sending is disabled.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            result = ResendEmailService().get_email_status(
+                email_id=email_id
+            )
+        except ResendNotConfiguredError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(exc),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except ResendDeliveryError as exc:
+            logger.exception("Resend status lookup failed")
+
+            payload = {
+                "success": False,
+                "error": str(exc),
+            }
+            if settings.DEBUG and exc.details:
+                payload["details"] = exc.details
+
+            response_status = status.HTTP_502_BAD_GATEWAY
+            if exc.status_code == 429:
+                response_status = status.HTTP_429_TOO_MANY_REQUESTS
+            elif exc.status_code in {400, 401, 403, 404, 422}:
+                response_status = status.HTTP_400_BAD_REQUEST
+
+            return Response(
+                payload,
+                status=response_status,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "data": result,
+            },
+            status=status.HTTP_200_OK,
+        )
