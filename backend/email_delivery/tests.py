@@ -5,6 +5,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from email_assets.temp_cache import CachedEmailAsset
+
 from .services.resend import ResendEmailService
 
 
@@ -77,6 +79,65 @@ class ResendEmailServiceTests(APITestCase):
     @override_settings(
         RESEND_API_KEY="re_test",
         RESEND_FROM_EMAIL="Yo-kai Mail <onboarding@resend.dev>",
+        EMAIL_ASSET_MAX_INLINE_BYTES=1024 * 1024,
+    )
+    @patch("email_delivery.services.resend.read_cached_email_asset")
+    @patch("email_delivery.services.resend.resend.Emails.send")
+    def test_cached_image_is_sent_as_inline_cid_attachment(
+        self,
+        send_mock,
+        read_cached_mock,
+    ):
+        send_mock.return_value = {"id": "email_123"}
+        cache_key = "a" * 64
+        source_url = "https://cdn.example.com/hero.png"
+        body = b"\x89PNG\r\n\x1a\npreview-bytes"
+        read_cached_mock.return_value = CachedEmailAsset(
+            cache_key=cache_key,
+            source_url=source_url,
+            resolved_url=source_url,
+            mime_type="image/png",
+            filename="yokai-hero.png",
+            body=body,
+            created_at=1,
+            expires_at=9999999999,
+            cache_hit=True,
+        )
+
+        result = ResendEmailService().send_test_email(
+            to="recipient@example.com",
+            subject="Generated campaign",
+            html=(
+                '<html><body><img src="'
+                + source_url
+                + '" alt="Hero"></body></html>'
+            ),
+            cached_assets=[
+                {
+                    "cache_key": cache_key,
+                    "source_url": source_url,
+                }
+            ],
+        )
+
+        params, _ = send_mock.call_args.args
+        self.assertIn('src="cid:yokai-', params["html"])
+        self.assertNotIn(source_url, params["html"])
+        self.assertEqual(len(params["attachments"]), 1)
+        self.assertEqual(
+            params["attachments"][0]["content_type"],
+            "image/png",
+        )
+        self.assertEqual(
+            params["attachments"][0]["content"],
+            list(body),
+        )
+        self.assertEqual(result["inline_asset_count"], 1)
+        self.assertEqual(result["inline_asset_bytes"], len(body))
+
+    @override_settings(
+        RESEND_API_KEY="re_test",
+        RESEND_FROM_EMAIL="Yo-kai Mail <onboarding@resend.dev>",
     )
     @patch("email_delivery.services.resend.resend.Emails.get")
     def test_get_email_status_returns_latest_provider_event(self, get_mock):
@@ -125,6 +186,9 @@ class TestEmailSendApiTests(APITestCase):
             "to": "recipient@example.com",
             "from": "Yo-kai Mail <onboarding@resend.dev>",
             "idempotency_key": "yo-kai-demo/test",
+            "inline_assets": [],
+            "inline_asset_count": 0,
+            "inline_asset_bytes": 0,
         }
 
         response = self.client.post(
