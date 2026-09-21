@@ -408,8 +408,11 @@ export default function Home() {
               <span>Assets</span>
               <strong>{result.asset_inventory.length} discovered assets</strong>
               <p>
-                External website assets are used as-is in this demo. Some sites
-                may block hotlinking until the Phase 1 asset pipeline is added.
+                {result.render.preview_asset_diagnostics.some(
+                  (asset) => asset.status === "unavailable",
+                )
+                  ? "One or more images could not be embedded for preview because the source host refused access."
+                  : "Images used by this preview were fetched and embedded temporarily for display."}
               </p>
             </div>
 
