@@ -764,7 +764,12 @@ main {
 
 .delivery-receipt {
   display: grid;
-  grid-template-columns: minmax(120px, 0.7fr) minmax(180px, 1fr) minmax(220px, 1.4fr) auto;
+  grid-template-columns:
+    minmax(110px, 0.65fr)
+    minmax(170px, 1fr)
+    minmax(190px, 1.25fr)
+    minmax(110px, 0.7fr)
+    auto;
   gap: 14px;
   align-items: center;
   padding: 14px;
