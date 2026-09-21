@@ -19,6 +19,7 @@ dependencies = [
     "playwright>=1.55.0",
     "psycopg2-binary>=2.9.13",
     "redis>=8.1.0",
+    "resend>=2.37.0,<3.0.0",
 ]
 
 [dependency-groups]
