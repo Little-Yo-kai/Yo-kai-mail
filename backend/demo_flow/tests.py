@@ -1,3 +1,4 @@
+import tempfile
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -44,6 +45,7 @@ class DemoGenerateApiTests(APITestCase):
                 "html": "<!doctype html><html></html>",
                 "preview_html": "<!doctype html><html></html>",
                 "preview_asset_diagnostics": [],
+                "cached_assets": [],
                 "mjml": "<mjml></mjml>",
             },
         }
@@ -80,6 +82,7 @@ class DemoGenerateApiTests(APITestCase):
                 "html": "<!doctype html><html></html>",
                 "preview_html": "<!doctype html><html></html>",
                 "preview_asset_diagnostics": [],
+                "cached_assets": [],
                 "mjml": "<mjml></mjml>",
             },
         }
@@ -111,8 +114,8 @@ class DemoGenerateApiTests(APITestCase):
 
 
 class DemoPreviewHtmlTests(APITestCase):
-    @patch("demo_flow.preview._fetch_public_image")
-    def test_known_email_image_is_embedded_for_preview(self, fetch_mock):
+    @patch("email_assets.temp_cache._fetch_public_image")
+    def test_known_email_image_is_embedded_and_cached(self, fetch_mock):
         fetch_mock.return_value = (
             b"\x89PNG\r\n\x1a\npreview-bytes",
             "image/png",
@@ -124,17 +127,19 @@ class DemoPreviewHtmlTests(APITestCase):
             'alt="Hero"></body></html>'
         )
 
-        preview_html, diagnostics = build_preview_html(
-            html_document=source_html,
-            asset_inventory=[
-                {
-                    "asset_id": "hero_1",
-                    "kind": "hero",
-                    "url": "https://cdn.example.com/hero.png",
-                    "source": "brand_profile",
-                }
-            ],
-        )
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with self.settings(EMAIL_ASSET_CACHE_DIR=cache_dir):
+                preview_html, diagnostics, cached_assets = build_preview_html(
+                    html_document=source_html,
+                    asset_inventory=[
+                        {
+                            "asset_id": "hero_1",
+                            "kind": "hero",
+                            "url": "https://cdn.example.com/hero.png",
+                            "source": "brand_profile",
+                        }
+                    ],
+                )
 
         self.assertIn("data:image/png;base64,", preview_html)
         self.assertNotIn(
@@ -142,30 +147,76 @@ class DemoPreviewHtmlTests(APITestCase):
             preview_html,
         )
         self.assertEqual(diagnostics[0]["status"], "embedded")
+        self.assertEqual(len(cached_assets), 1)
+        self.assertEqual(
+            cached_assets[0]["source_url"],
+            "https://cdn.example.com/hero.png",
+        )
+        self.assertEqual(len(cached_assets[0]["cache_key"]), 64)
 
-    @patch("demo_flow.preview._fetch_public_image")
+    @patch("email_assets.temp_cache._fetch_public_image")
+    def test_cached_preview_reuses_downloaded_bytes(self, fetch_mock):
+        fetch_mock.return_value = (
+            b"\x89PNG\r\n\x1a\npreview-bytes",
+            "image/png",
+            "https://cdn.example.com/hero.png",
+        )
+
+        source_html = (
+            '<html><body><img src="https://cdn.example.com/hero.png" '
+            'alt="Hero"></body></html>'
+        )
+        inventory = [
+            {
+                "asset_id": "hero_1",
+                "kind": "hero",
+                "url": "https://cdn.example.com/hero.png",
+                "source": "brand_profile",
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with self.settings(EMAIL_ASSET_CACHE_DIR=cache_dir):
+                build_preview_html(
+                    html_document=source_html,
+                    asset_inventory=inventory,
+                )
+                _, diagnostics, _ = build_preview_html(
+                    html_document=source_html,
+                    asset_inventory=inventory,
+                )
+
+        self.assertEqual(fetch_mock.call_count, 1)
+        self.assertTrue(diagnostics[0]["cache_hit"])
+
+    @patch("email_assets.temp_cache._fetch_public_image")
     def test_unavailable_image_keeps_original_url(self, fetch_mock):
-        fetch_mock.side_effect = ValueError("Image request returned HTTP 403.")
+        fetch_mock.side_effect = ValueError(
+            "Image request returned HTTP 403."
+        )
 
         source_html = (
             '<html><body><img src="https://cdn.example.com/hero.png" '
             'alt="Hero"></body></html>'
         )
 
-        preview_html, diagnostics = build_preview_html(
-            html_document=source_html,
-            asset_inventory=[
-                {
-                    "asset_id": "hero_1",
-                    "kind": "hero",
-                    "url": "https://cdn.example.com/hero.png",
-                    "source": "brand_profile",
-                }
-            ],
-        )
+        with tempfile.TemporaryDirectory() as cache_dir:
+            with self.settings(EMAIL_ASSET_CACHE_DIR=cache_dir):
+                preview_html, diagnostics, cached_assets = build_preview_html(
+                    html_document=source_html,
+                    asset_inventory=[
+                        {
+                            "asset_id": "hero_1",
+                            "kind": "hero",
+                            "url": "https://cdn.example.com/hero.png",
+                            "source": "brand_profile",
+                        }
+                    ],
+                )
 
         self.assertIn(
             'src="https://cdn.example.com/hero.png"',
             preview_html,
         )
         self.assertEqual(diagnostics[0]["status"], "unavailable")
+        self.assertEqual(cached_assets, [])
