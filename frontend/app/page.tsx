@@ -76,42 +76,6 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 function slugify(value: string) {
-  async function checkDeliveryStatus() {
-    if (!deliveryReceipt) return;
-
-    setCheckingDelivery(true);
-    setSendError("");
-
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/email-delivery/status/${encodeURIComponent(
-          deliveryReceipt.email_id,
-        )}/`,
-      );
-
-      const payload = (await response.json()) as DeliveryStatusResponse;
-
-      if (!response.ok || !payload.success || !payload.data) {
-        setSendError(
-          payload.details ||
-            payload.error ||
-            "Could not retrieve the latest delivery status.",
-        );
-        return;
-      }
-
-      setDeliveryEvent(payload.data.last_event || "unknown");
-    } catch (requestError) {
-      setSendError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Could not reach the delivery status API.",
-      );
-    } finally {
-      setCheckingDelivery(false);
-    }
-  }
-
   return (
     value
       .toLowerCase()
@@ -267,6 +231,43 @@ export default function Home() {
       );
     } finally {
       setSendingTest(false);
+    }
+  }
+
+
+  async function checkDeliveryStatus() {
+    if (!deliveryReceipt) return;
+
+    setCheckingDelivery(true);
+    setSendError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/email-delivery/status/${encodeURIComponent(
+          deliveryReceipt.email_id,
+        )}/`,
+      );
+
+      const payload = (await response.json()) as DeliveryStatusResponse;
+
+      if (!response.ok || !payload.success || !payload.data) {
+        setSendError(
+          payload.details ||
+            payload.error ||
+            "Could not retrieve the latest delivery status.",
+        );
+        return;
+      }
+
+      setDeliveryEvent(payload.data.last_event || "unknown");
+    } catch (requestError) {
+      setSendError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not reach the delivery status API.",
+      );
+    } finally {
+      setCheckingDelivery(false);
     }
   }
 
