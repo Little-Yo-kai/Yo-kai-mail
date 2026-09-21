@@ -1,7 +1,17 @@
 import hashlib
+import html as html_lib
+import re
 
 import resend
 from django.conf import settings
+
+from email_assets.temp_cache import (
+    EmailAssetCacheError,
+    read_cached_email_asset,
+)
+
+
+IMAGE_SRC_PATTERN = re.compile(r'src="([^"]+)"', re.IGNORECASE)
 
 
 class ResendNotConfiguredError(RuntimeError):
@@ -33,6 +43,87 @@ def _default_idempotency_key(
     return f"yo-kai-demo/{digest}"
 
 
+def _prepare_inline_assets(
+    *,
+    html_document: str,
+    cached_asset_refs: list[dict],
+) -> tuple[str, list[dict], list[dict]]:
+    source_urls = {
+        html_lib.unescape(match.group(1))
+        for match in IMAGE_SRC_PATTERN.finditer(html_document)
+    }
+
+    replacement_map: dict[str, str] = {}
+    attachments: list[dict] = []
+    inline_manifest: list[dict] = []
+    attachment_by_cache_key: dict[str, str] = {}
+    total_bytes = 0
+
+    for item in cached_asset_refs:
+        cache_key = item["cache_key"]
+        source_url = item["source_url"]
+
+        if source_url not in source_urls:
+            continue
+
+        try:
+            cached = read_cached_email_asset(
+                cache_key,
+                source_url=source_url,
+            )
+        except EmailAssetCacheError as exc:
+            raise ResendDeliveryError(
+                "A temporary email image is no longer available.",
+                details=str(exc),
+            ) from exc
+
+        cid = attachment_by_cache_key.get(cache_key)
+
+        if cid is None:
+            total_bytes += len(cached.body)
+            if total_bytes > settings.EMAIL_ASSET_MAX_INLINE_BYTES:
+                raise ResendDeliveryError(
+                    "Cached email images exceed the inline attachment limit.",
+                    details=(
+                        f"Inline assets total {total_bytes} bytes; "
+                        f"limit is {settings.EMAIL_ASSET_MAX_INLINE_BYTES}."
+                    ),
+                )
+
+            cid = f"yokai-{cache_key[:24]}"
+            attachment_by_cache_key[cache_key] = cid
+            attachments.append(
+                {
+                    "filename": cached.filename,
+                    "content": list(cached.body),
+                    "content_type": cached.mime_type,
+                    "content_id": cid,
+                }
+            )
+
+        replacement_map[source_url] = f"cid:{cid}"
+        inline_manifest.append(
+            {
+                "cache_key": cache_key,
+                "source_url": source_url,
+                "content_id": cid,
+                "mime_type": cached.mime_type,
+                "bytes": len(cached.body),
+            }
+        )
+
+    def replace_src(match):
+        raw_value = match.group(1)
+        decoded_value = html_lib.unescape(raw_value)
+        replacement = replacement_map.get(decoded_value)
+        if not replacement:
+            return match.group(0)
+        return f'src="{replacement}"'
+
+    delivery_html = IMAGE_SRC_PATTERN.sub(replace_src, html_document)
+    return delivery_html, attachments, inline_manifest
+
+
 class ResendEmailService:
     def __init__(self):
         if not settings.RESEND_API_KEY:
@@ -51,22 +142,33 @@ class ResendEmailService:
         to: str,
         subject: str,
         html: str,
+        cached_assets: list[dict] | None = None,
         idempotency_key: str | None = None,
     ) -> dict:
         resend.api_key = settings.RESEND_API_KEY
 
+        delivery_html, attachments, inline_manifest = (
+            _prepare_inline_assets(
+                html_document=html,
+                cached_asset_refs=cached_assets or [],
+            )
+        )
+
         key = idempotency_key or _default_idempotency_key(
             to=to,
             subject=subject,
-            html=html,
+            html=delivery_html,
         )
 
         params: resend.Emails.SendParams = {
             "from": settings.RESEND_FROM_EMAIL,
             "to": [to],
             "subject": subject,
-            "html": html,
+            "html": delivery_html,
         }
+
+        if attachments:
+            params["attachments"] = attachments
 
         try:
             options: resend.Emails.SendOptions = {
@@ -106,8 +208,13 @@ class ResendEmailService:
             "to": to,
             "from": settings.RESEND_FROM_EMAIL,
             "idempotency_key": key,
+            "inline_assets": inline_manifest,
+            "inline_asset_count": len(attachments),
+            "inline_asset_bytes": sum(
+                item["bytes"] for item in inline_manifest
+                if item["content_id"]
+            ),
         }
-
 
     def get_email_status(self, *, email_id: str) -> dict:
         resend.api_key = settings.RESEND_API_KEY
