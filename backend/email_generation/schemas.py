@@ -195,16 +195,15 @@ class EmailSection(BaseModel):
         if self.type == "hero" and not _has_text(self.headline):
             raise ValueError("Hero sections require a headline.")
 
-        if self.type in {"intro", "lifestyle", "offer"}:
-            if not _has_text(self.body):
-                raise ValueError(
-                    f"{self.type} sections require final body copy."
-                )
-
-        if self.type == "product_feature":
+        if self.type in {
+            "intro",
+            "product_feature",
+            "lifestyle",
+            "offer",
+        }:
             if not _has_text(self.body) and not _has_meaningful_items(self.items):
                 raise ValueError(
-                    "Product feature sections require body copy or populated items."
+                    f"{self.type} sections require body copy or populated items."
                 )
 
         if self.type == "benefits":
