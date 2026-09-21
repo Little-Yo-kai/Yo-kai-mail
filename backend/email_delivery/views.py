@@ -28,6 +28,15 @@ class TestEmailSendView(APIView):
         ),
     )
     def post(self, request):
+        if not settings.RESEND_TEST_SEND_ENABLED:
+            return Response(
+                {
+                    "success": False,
+                    "error": "Test email sending is disabled.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = TestEmailSendSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
