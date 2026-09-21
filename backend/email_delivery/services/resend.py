@@ -69,9 +69,12 @@ class ResendEmailService:
         }
 
         try:
+            options: resend.Emails.SendOptions = {
+                "idempotency_key": key,
+            }
             response = resend.Emails.send(
                 params,
-                idempotency_key=key,
+                options,
             )
         except Exception as exc:
             status_code = getattr(exc, "status_code", None)
