@@ -52,10 +52,14 @@ http://localhost:3000
 
 ## Important demo limitation
 
-Asset validation/stable hosting, visual critique, and the automatic revision loop
-are intentionally bypassed in this demo flow. External website image URLs are
-therefore rendered as discovered and some sites can block them through
-hotlink/CDN protections. These items remain required before Phase 1 is complete.
+The demo now caches successfully fetched rendered images temporarily and reuses
+those bytes for both browser preview and Resend test delivery. Test emails use
+CID inline attachments for cached images, so the recipient does not need to
+hotlink the source CDN.
+
+Persistent asset validation/stable hosting, visual critique, and the automatic
+revision loop are still intentionally incomplete. They remain required before
+Phase 1 is complete.
 
 
 ## Test delivery
