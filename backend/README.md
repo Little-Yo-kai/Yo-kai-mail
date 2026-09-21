@@ -722,3 +722,42 @@ The response includes:
 This is a lightweight Phase 1 demo capability, not campaign analytics. Bulk
 audiences, contact lists, suppression handling, campaign jobs, scheduling, and
 analytics remain separate future delivery work.
+
+
+## Temporary Email Asset Cache
+
+The Phase 1 demo no longer downloads preview images and immediately discards
+them. Images that are actually referenced by the rendered email are fetched
+once, validated, and stored temporarily under the backend cache directory.
+
+```text
+Website image URL
+    -> safe public fetch
+    -> image validation
+    -> temporary disk cache
+         -> preview data URL
+         -> Resend CID inline attachment
+```
+
+Defaults:
+
+```text
+EMAIL_ASSET_CACHE_TTL_SECONDS=21600
+EMAIL_ASSET_MAX_IMAGE_BYTES=8388608
+EMAIL_ASSET_MAX_INLINE_BYTES=20971520
+EMAIL_ASSET_MAX_INLINE_COUNT=10
+```
+
+The cache is content-addressed with SHA-256 and has a URL index so repeated
+preview requests for the same source URL can reuse the existing bytes during
+the TTL. Cached binary files are local-only and ignored by Git.
+
+For Resend test delivery, the backend rewrites cached image sources from their
+remote URL to `cid:...` references and sends the cached bytes as inline
+attachments. The recipient therefore does not need to hotlink the original
+website CDN for those cached images.
+
+This is still a temporary Phase 1 bridge. Production campaign delivery still
+needs the full AssetLibrary flow with rights/provenance checks, persistent
+object storage, stable Yo-kai-controlled URLs, lifecycle management, and
+campaign-safe hosting.
