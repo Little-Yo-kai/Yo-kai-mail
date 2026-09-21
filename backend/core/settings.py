@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'email_rendering',
     'email_visual_qa',
     'demo_flow',
+    'email_delivery',
 ]
 
 MIDDLEWARE = [
@@ -163,6 +164,16 @@ MJML_NODE_BINARY = env('MJML_NODE_BINARY', default='node')
 MJML_COMPILE_TIMEOUT_SECONDS = env.int(
     'MJML_COMPILE_TIMEOUT_SECONDS',
     default=10,
+)
+
+RESEND_API_KEY = env('RESEND_API_KEY', default='')
+RESEND_FROM_EMAIL = env(
+    'RESEND_FROM_EMAIL',
+    default='Yo-kai Mail <onboarding@resend.dev>',
+)
+RESEND_TEST_SEND_ENABLED = env.bool(
+    'RESEND_TEST_SEND_ENABLED',
+    default=DEBUG,
 )
 
 # Email
