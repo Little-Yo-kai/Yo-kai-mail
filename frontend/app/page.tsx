@@ -38,6 +38,17 @@ type DemoResponse = {
         status: "embedded" | "unavailable";
         reason?: string;
       }>;
+      cached_assets: Array<{
+        cache_key: string;
+        source_url: string;
+        resolved_url: string;
+        mime_type: string;
+        filename: string;
+        bytes: number;
+        created_at: number;
+        expires_at: number;
+        cache_hit: boolean;
+      }>;
       mjml: string;
       compiler_errors: unknown[];
       rendered_sections: number;
@@ -54,6 +65,8 @@ type DeliveryResponse = {
     provider: "resend";
     to: string;
     from: string;
+    inline_asset_count: number;
+    inline_asset_bytes: number;
   };
 };
 
@@ -206,6 +219,10 @@ export default function Home() {
             to: recipient.trim(),
             subject: result.email_design.subject,
             html: result.render.html,
+            cached_assets: result.render.cached_assets.map((asset) => ({
+              cache_key: asset.cache_key,
+              source_url: asset.source_url,
+            })),
           }),
         },
       );
@@ -430,7 +447,7 @@ export default function Home() {
                   setError("");
                   setErrorStage("");
                   setDeliveryReceipt(null);
-    setDeliveryEvent("");
+                  setDeliveryEvent("");
                   setSendError("");
                 }}
               >
@@ -550,6 +567,12 @@ export default function Home() {
                   <span className="delivery-label">Message ID</span>
                   <code>{deliveryReceipt.email_id}</code>
                 </div>
+                <div>
+                  <span className="delivery-label">Inline images</span>
+                  <strong>
+                    {deliveryReceipt.inline_asset_count} attached
+                  </strong>
+                </div>
                 <button
                   type="button"
                   className="check-status-button"
@@ -566,11 +589,11 @@ export default function Home() {
             )}
 
             <p className="send-test-note">
-              Yo-kai sends the original compiled HTML through the backend;
-              the Resend key never reaches the browser. With Resend's testing
-              sender, the provider may restrict delivery to the account owner's
-              address until a sending domain is verified. External website
-              images can also fail until the Phase 1 asset pipeline is complete.
+              Yo-kai reuses the same temporary image cache used by the preview
+              and sends those images as inline CID attachments through Resend.
+              The Resend key never reaches the browser. With Resend's testing
+              sender, the provider may still restrict delivery to the account
+              owner's address until a sending domain is verified.
             </p>
           </form>
 
