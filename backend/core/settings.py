@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'email_generation',
     'email_rendering',
     'email_visual_qa',
+    'email_assets',
     'demo_flow',
     'email_delivery',
 ]
@@ -174,6 +175,27 @@ RESEND_FROM_EMAIL = env(
 RESEND_TEST_SEND_ENABLED = env.bool(
     'RESEND_TEST_SEND_ENABLED',
     default=DEBUG,
+)
+
+EMAIL_ASSET_CACHE_DIR = env(
+    'EMAIL_ASSET_CACHE_DIR',
+    default=str(BASE_DIR / '.cache' / 'email_assets'),
+)
+EMAIL_ASSET_CACHE_TTL_SECONDS = env.int(
+    'EMAIL_ASSET_CACHE_TTL_SECONDS',
+    default=21600,
+)
+EMAIL_ASSET_MAX_IMAGE_BYTES = env.int(
+    'EMAIL_ASSET_MAX_IMAGE_BYTES',
+    default=8 * 1024 * 1024,
+)
+EMAIL_ASSET_MAX_INLINE_BYTES = env.int(
+    'EMAIL_ASSET_MAX_INLINE_BYTES',
+    default=20 * 1024 * 1024,
+)
+EMAIL_ASSET_MAX_INLINE_COUNT = env.int(
+    'EMAIL_ASSET_MAX_INLINE_COUNT',
+    default=10,
 )
 
 # Email
