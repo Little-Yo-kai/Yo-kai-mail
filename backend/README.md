@@ -698,3 +698,27 @@ The delivery endpoint sends the original final HTML, not the temporary
 data-URI-based browser preview HTML. Until the Phase 1 AssetLibrary/stable-hosting
 work is complete, website CDNs that block hotlinking may still cause images to be
 missing in a recipient inbox.
+
+
+### Test delivery status
+
+After a successful test send, Yo-kai can ask Resend for the latest provider
+event:
+
+```text
+GET /api/email-delivery/status/<email_id>/
+```
+
+The response includes:
+
+- provider email id
+- latest event such as `delivered`, `bounced`, `failed`, or another
+  Resend event value
+- recipient(s)
+- sender
+- subject
+- provider creation timestamp
+
+This is a lightweight Phase 1 demo capability, not campaign analytics. Bulk
+audiences, contact lists, suppression handling, campaign jobs, scheduling, and
+analytics remain separate future delivery work.
