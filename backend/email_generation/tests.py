@@ -629,6 +629,51 @@ class EmailDesignSchemaTests(APITestCase):
             "High-performance energy",
         )
 
+    def test_narrative_sections_accept_meaningful_items_without_body(self):
+        for section_type in (
+            "intro",
+            "product_feature",
+            "lifestyle",
+            "offer",
+        ):
+            with self.subTest(section_type=section_type):
+                design = sample_email_design()
+                design["sections"].insert(
+                    1,
+                    {
+                        "id": f"{section_type}_items",
+                        "order": 2,
+                        "type": section_type,
+                        "layout": "stacked",
+                        "eyebrow": "DETAIL",
+                        "headline": "A focused story",
+                        "body": None,
+                        "asset_ids": [],
+                        "items": [
+                            {
+                                "title": "A Modern Environment",
+                                "body": (
+                                    "Meaningful finished recipient-facing copy."
+                                ),
+                                "asset_id": None,
+                                "cta": None,
+                            }
+                        ],
+                        "cta": None,
+                        "style": {
+                            "alignment": "center",
+                            "spacing": "balanced",
+                            "background_role": "transparent",
+                        },
+                    },
+                )
+
+                validated = EmailDesign.model_validate(design)
+                self.assertEqual(
+                    validated.sections[1].items[0].title,
+                    "A Modern Environment",
+                )
+
     def test_product_feature_accepts_concise_finished_body_copy(self):
         design = sample_email_design()
         design["sections"].insert(
