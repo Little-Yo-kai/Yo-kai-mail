@@ -211,8 +211,7 @@ class ResendEmailService:
             "inline_assets": inline_manifest,
             "inline_asset_count": len(attachments),
             "inline_asset_bytes": sum(
-                item["bytes"] for item in inline_manifest
-                if item["content_id"]
+                len(item["content"]) for item in attachments
             ),
         }
 
