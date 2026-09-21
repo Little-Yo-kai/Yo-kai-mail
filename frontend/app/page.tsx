@@ -45,6 +45,18 @@ type DemoResponse = {
   };
 };
 
+type DeliveryResponse = {
+  success: boolean;
+  error?: string;
+  details?: string;
+  data?: {
+    email_id: string;
+    provider: "resend";
+    to: string;
+    from: string;
+  };
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -79,6 +91,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [viewport, setViewport] = useState<"desktop" | "mobile">("desktop");
   const [copied, setCopied] = useState(false);
+  const [recipient, setRecipient] = useState("");
+  const [sendingTest, setSendingTest] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState("");
+  const [sendError, setSendError] = useState("");
 
   const brandName = result?.brand_profile.identity?.name || "Generated email";
   const fileBase = useMemo(() => slugify(brandName), [brandName]);
@@ -146,6 +162,55 @@ export default function Home() {
     await navigator.clipboard.writeText(result.render.html);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  async function sendTestEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!result || !recipient.trim()) return;
+
+    setSendingTest(true);
+    setSendSuccess("");
+    setSendError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/email-delivery/send-test/`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: recipient.trim(),
+            subject: result.email_design.subject,
+            html: result.render.html,
+          }),
+        },
+      );
+
+      const payload = (await response.json()) as DeliveryResponse;
+
+      if (!response.ok || !payload.success || !payload.data) {
+        setSendError(
+          payload.details ||
+            payload.error ||
+            "Resend could not send the test email.",
+        );
+        return;
+      }
+
+      setSendSuccess(
+        `Sent to ${payload.data.to} · ${payload.data.email_id}`,
+      );
+    } catch (requestError) {
+      setSendError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not reach the delivery API.",
+      );
+    } finally {
+      setSendingTest(false);
+    }
   }
 
   return (
@@ -380,6 +445,44 @@ export default function Home() {
               />
             </div>
           </div>
+
+          <form className="send-test-card" onSubmit={sendTestEmail}>
+            <div className="send-test-copy">
+              <p className="eyebrow">RESEND DELIVERY</p>
+              <strong>Send this generated email to an inbox.</strong>
+              <span>
+                Yo-kai sends the final compiled HTML through the backend. Your
+                Resend API key never reaches the browser.
+              </span>
+            </div>
+
+            <div className="send-test-controls">
+              <input
+                type="email"
+                required
+                placeholder="you@example.com"
+                value={recipient}
+                onChange={(event) => setRecipient(event.target.value)}
+                disabled={sendingTest}
+              />
+              <button type="submit" disabled={sendingTest}>
+                {sendingTest ? "Sending…" : "Send test email"}
+              </button>
+            </div>
+
+            {sendSuccess && (
+              <div className="send-status success">{sendSuccess}</div>
+            )}
+            {sendError && (
+              <div className="send-status error">{sendError}</div>
+            )}
+
+            <p className="send-test-note">
+              The email uses the original delivery HTML. Until the Phase 1
+              asset pipeline is complete, a source website that blocks image
+              hotlinking can still cause missing images in the recipient inbox.
+            </p>
+          </form>
 
           <div className="result-footer">
             <div className="summary-card">
