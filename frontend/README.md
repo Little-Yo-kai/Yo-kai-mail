@@ -15,6 +15,7 @@ workflow.
 - download final HTML
 - copy final HTML
 - download MJML source
+- send generated HTML to one test inbox through Resend
 
 The UI intentionally does not expose internal JSON contracts or require Swagger.
 
@@ -55,3 +56,13 @@ Asset validation/stable hosting, visual critique, and the automatic revision loo
 are intentionally bypassed in this demo flow. External website image URLs are
 therefore rendered as discovered and some sites can block them through
 hotlink/CDN protections. These items remain required before Phase 1 is complete.
+
+
+## Test delivery
+
+After an email is generated, enter a recipient address in the Resend Delivery
+panel and choose **Send test email**. The browser sends only the recipient,
+subject, and final compiled HTML to Django. Django owns the Resend credential and
+performs the provider call.
+
+The frontend must never contain `RESEND_API_KEY` or any equivalent secret.
