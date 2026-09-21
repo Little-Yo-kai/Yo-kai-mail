@@ -137,7 +137,11 @@ def generate_phase1_demo(
             render_result["mjml"]
         )
 
-        preview_html, preview_asset_diagnostics = build_preview_html(
+        (
+            preview_html,
+            preview_asset_diagnostics,
+            cached_assets,
+        ) = build_preview_html(
             html_document=compile_result["html"],
             asset_inventory=design_result["asset_inventory"],
         )
@@ -158,6 +162,7 @@ def generate_phase1_demo(
                 "html": compile_result["html"],
                 "preview_html": preview_html,
                 "preview_asset_diagnostics": preview_asset_diagnostics,
+                "cached_assets": cached_assets,
                 "mjml": render_result["mjml"],
                 "compiler_errors": compile_result["compiler_errors"],
                 "resolved_theme": render_result["resolved_theme"],
