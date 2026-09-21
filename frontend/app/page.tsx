@@ -32,6 +32,12 @@ type DemoResponse = {
     }>;
     render: {
       html: string;
+      preview_html: string;
+      preview_asset_diagnostics: Array<{
+        url: string;
+        status: "embedded" | "unavailable";
+        reason?: string;
+      }>;
       mjml: string;
       compiler_errors: unknown[];
       rendered_sections: number;
@@ -129,7 +135,7 @@ export default function Home() {
   function openFullPreview() {
     if (!result) return;
 
-    const blob = new Blob([result.render.html], { type: "text/html" });
+    const blob = new Blob([result.render.preview_html], { type: "text/html" });
     const previewUrl = URL.createObjectURL(blob);
     window.open(previewUrl, "_blank", "noopener,noreferrer");
     window.setTimeout(() => URL.revokeObjectURL(previewUrl), 60_000);
@@ -369,7 +375,7 @@ export default function Home() {
             >
               <iframe
                 title="Generated email preview"
-                srcDoc={result.render.html}
+                srcDoc={result.render.preview_html}
                 sandbox="allow-popups allow-popups-to-escape-sandbox"
               />
             </div>
