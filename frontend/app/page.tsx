@@ -104,6 +104,8 @@ export default function Home() {
     setError("");
     setErrorStage("");
     setResult(null);
+    setSendSuccess("");
+    setSendError("");
     setLoading(true);
 
     const body = new FormData();
@@ -371,6 +373,8 @@ export default function Home() {
                   setResult(null);
                   setError("");
                   setErrorStage("");
+                  setSendSuccess("");
+                  setSendError("");
                 }}
               >
                 ← New generation
