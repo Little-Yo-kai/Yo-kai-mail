@@ -219,7 +219,7 @@ export default function Home() {
             to: recipient.trim(),
             subject: result.email_design.subject,
             html: result.render.html,
-            cached_assets: result.render.cached_assets.map((asset) => ({
+            cached_assets: (result.render.cached_assets ?? []).map((asset) => ({
               cache_key: asset.cache_key,
               source_url: asset.source_url,
             })),
