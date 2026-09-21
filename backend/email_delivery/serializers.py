@@ -1,7 +1,16 @@
+from django.conf import settings
 from rest_framework import serializers
 
 
 MAX_TEST_HTML_CHARS = 2_000_000
+
+
+class CachedAssetRefSerializer(serializers.Serializer):
+    cache_key = serializers.RegexField(
+        regex=r"^[0-9a-f]{64}$",
+        max_length=64,
+    )
+    source_url = serializers.URLField(max_length=4096)
 
 
 class TestEmailSendSerializer(serializers.Serializer):
@@ -10,6 +19,11 @@ class TestEmailSendSerializer(serializers.Serializer):
     html = serializers.CharField(
         trim_whitespace=False,
         max_length=MAX_TEST_HTML_CHARS,
+    )
+    cached_assets = CachedAssetRefSerializer(
+        many=True,
+        required=False,
+        default=list,
     )
     idempotency_key = serializers.CharField(
         required=False,
@@ -22,4 +36,21 @@ class TestEmailSendSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Rendered HTML cannot be empty."
             )
+        return value
+
+    def validate_cached_assets(self, value):
+        if len(value) > settings.EMAIL_ASSET_MAX_INLINE_COUNT:
+            raise serializers.ValidationError(
+                "Too many cached assets for one test email."
+            )
+
+        seen_urls = set()
+        for item in value:
+            source_url = item["source_url"]
+            if source_url in seen_urls:
+                raise serializers.ValidationError(
+                    "Duplicate cached asset source URL."
+                )
+            seen_urls.add(source_url)
+
         return value
