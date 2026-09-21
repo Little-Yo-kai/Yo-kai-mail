@@ -107,3 +107,35 @@ class ResendEmailService:
             "from": settings.RESEND_FROM_EMAIL,
             "idempotency_key": key,
         }
+
+
+    def get_email_status(self, *, email_id: str) -> dict:
+        resend.api_key = settings.RESEND_API_KEY
+
+        try:
+            response = resend.Emails.get(email_id=email_id)
+        except Exception as exc:
+            status_code = getattr(exc, "status_code", None)
+            if not isinstance(status_code, int):
+                status_code = getattr(exc, "status", None)
+            if not isinstance(status_code, int):
+                status_code = None
+
+            raise ResendDeliveryError(
+                "Resend could not retrieve email status.",
+                details=str(exc),
+                status_code=status_code,
+            ) from exc
+
+        if not isinstance(response, dict):
+            response = dict(response)
+
+        return {
+            "email_id": response.get("id") or email_id,
+            "provider": "resend",
+            "last_event": response.get("last_event") or "unknown",
+            "created_at": response.get("created_at"),
+            "to": response.get("to") or [],
+            "from": response.get("from"),
+            "subject": response.get("subject"),
+        }
