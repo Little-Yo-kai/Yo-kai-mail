@@ -19,3 +19,6 @@ db.sqlite3
 
 # Local Node/MJML runtime
 node_modules/
+
+# Temporary email asset cache
+.cache/
