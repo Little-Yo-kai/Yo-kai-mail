@@ -66,3 +66,12 @@ subject, and final compiled HTML to Django. Django owns the Resend credential an
 performs the provider call.
 
 The frontend must never contain `RESEND_API_KEY` or any equivalent secret.
+
+
+The Phase 1 frontend intentionally supports **one test recipient at a time**.
+After Resend accepts the email, the UI shows the provider message ID and lets
+the user choose **Check delivery status** to retrieve the latest provider event.
+
+This is deliberately not the campaign/bulk-send interface. The eventual campaign
+flow will select contacts, lists, or segments and will apply unsubscribe,
+suppression, deduplication, and delivery-job rules before sending.
