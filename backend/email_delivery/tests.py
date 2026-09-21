@@ -73,6 +73,31 @@ class ResendEmailServiceTests(APITestCase):
         )
 
 
+
+    @override_settings(
+        RESEND_API_KEY="re_test",
+        RESEND_FROM_EMAIL="Yo-kai Mail <onboarding@resend.dev>",
+    )
+    @patch("email_delivery.services.resend.resend.Emails.get")
+    def test_get_email_status_returns_latest_provider_event(self, get_mock):
+        get_mock.return_value = {
+            "id": "email_123",
+            "last_event": "delivered",
+            "created_at": "2026-09-21T05:30:00Z",
+            "to": ["recipient@example.com"],
+            "from": "Yo-kai Mail <onboarding@resend.dev>",
+            "subject": "Generated campaign",
+        }
+
+        result = ResendEmailService().get_email_status(
+            email_id="email_123"
+        )
+
+        self.assertEqual(result["email_id"], "email_123")
+        self.assertEqual(result["last_event"], "delivered")
+        get_mock.assert_called_once_with(email_id="email_123")
+
+
 class TestEmailSendApiTests(APITestCase):
     @override_settings(RESEND_TEST_SEND_ENABLED=False)
     def test_test_send_can_be_disabled(self):
@@ -117,4 +142,32 @@ class TestEmailSendApiTests(APITestCase):
         self.assertEqual(
             response.data["data"]["email_id"],
             "email_123",
+        )
+
+
+    @override_settings(RESEND_TEST_SEND_ENABLED=True)
+    @patch("email_delivery.views.ResendEmailService")
+    def test_status_endpoint_returns_latest_event(self, service_class):
+        service_class.return_value.get_email_status.return_value = {
+            "email_id": "email_123",
+            "provider": "resend",
+            "last_event": "delivered",
+            "created_at": "2026-09-21T05:30:00Z",
+            "to": ["recipient@example.com"],
+            "from": "Yo-kai Mail <onboarding@resend.dev>",
+            "subject": "Hello",
+        }
+
+        response = self.client.get(
+            reverse(
+                "email-delivery-status",
+                kwargs={"email_id": "email_123"},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(
+            response.data["data"]["last_event"],
+            "delivered",
         )
