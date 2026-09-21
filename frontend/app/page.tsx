@@ -57,10 +57,61 @@ type DeliveryResponse = {
   };
 };
 
+type DeliveryStatusResponse = {
+  success: boolean;
+  error?: string;
+  details?: string;
+  data?: {
+    email_id: string;
+    provider: "resend";
+    last_event: string;
+    created_at?: string | null;
+    to: string[];
+    from?: string | null;
+    subject?: string | null;
+  };
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 function slugify(value: string) {
+  async function checkDeliveryStatus() {
+    if (!deliveryReceipt) return;
+
+    setCheckingDelivery(true);
+    setSendError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/email-delivery/status/${encodeURIComponent(
+          deliveryReceipt.email_id,
+        )}/`,
+      );
+
+      const payload = (await response.json()) as DeliveryStatusResponse;
+
+      if (!response.ok || !payload.success || !payload.data) {
+        setSendError(
+          payload.details ||
+            payload.error ||
+            "Could not retrieve the latest delivery status.",
+        );
+        return;
+      }
+
+      setDeliveryEvent(payload.data.last_event || "unknown");
+    } catch (requestError) {
+      setSendError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not reach the delivery status API.",
+      );
+    } finally {
+      setCheckingDelivery(false);
+    }
+  }
+
   return (
     value
       .toLowerCase()
@@ -93,7 +144,10 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [recipient, setRecipient] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
-  const [sendSuccess, setSendSuccess] = useState("");
+  const [deliveryReceipt, setDeliveryReceipt] =
+    useState<NonNullable<DeliveryResponse["data"]> | null>(null);
+  const [deliveryEvent, setDeliveryEvent] = useState("");
+  const [checkingDelivery, setCheckingDelivery] = useState(false);
   const [sendError, setSendError] = useState("");
 
   const brandName = result?.brand_profile.identity?.name || "Generated email";
@@ -104,7 +158,8 @@ export default function Home() {
     setError("");
     setErrorStage("");
     setResult(null);
-    setSendSuccess("");
+    setDeliveryReceipt(null);
+    setDeliveryEvent("");
     setSendError("");
     setLoading(true);
 
@@ -171,7 +226,8 @@ export default function Home() {
     if (!result || !recipient.trim()) return;
 
     setSendingTest(true);
-    setSendSuccess("");
+    setDeliveryReceipt(null);
+    setDeliveryEvent("");
     setSendError("");
 
     try {
@@ -201,9 +257,8 @@ export default function Home() {
         return;
       }
 
-      setSendSuccess(
-        `Sent to ${payload.data.to} · ${payload.data.email_id}`,
-      );
+      setDeliveryReceipt(payload.data);
+      setDeliveryEvent("accepted");
     } catch (requestError) {
       setSendError(
         requestError instanceof Error
@@ -373,7 +428,8 @@ export default function Home() {
                   setResult(null);
                   setError("");
                   setErrorStage("");
-                  setSendSuccess("");
+                  setDeliveryReceipt(null);
+    setDeliveryEvent("");
                   setSendError("");
                 }}
               >
@@ -451,13 +507,16 @@ export default function Home() {
           </div>
 
           <form className="send-test-card" onSubmit={sendTestEmail}>
-            <div className="send-test-copy">
-              <p className="eyebrow">RESEND DELIVERY</p>
-              <strong>Send this generated email to an inbox.</strong>
-              <span>
-                Yo-kai sends the final compiled HTML through the backend. Your
-                Resend API key never reaches the browser.
-              </span>
+            <div className="send-test-heading">
+              <div className="send-test-copy">
+                <p className="eyebrow">TEST EMAIL</p>
+                <strong>Send a test before launching a campaign.</strong>
+                <span>
+                  Test delivery is intentionally separate from campaign
+                  delivery. Phase 1 sends to one recipient at a time.
+                </span>
+              </div>
+              <span className="test-mode-badge">One recipient</span>
             </div>
 
             <div className="send-test-controls">
@@ -474,17 +533,43 @@ export default function Home() {
               </button>
             </div>
 
-            {sendSuccess && (
-              <div className="send-status success">{sendSuccess}</div>
+            {deliveryReceipt && (
+              <div className="delivery-receipt">
+                <div>
+                  <span className="delivery-label">Resend status</span>
+                  <strong className="delivery-event">
+                    {deliveryEvent || "accepted"}
+                  </strong>
+                </div>
+                <div>
+                  <span className="delivery-label">Recipient</span>
+                  <strong>{deliveryReceipt.to}</strong>
+                </div>
+                <div>
+                  <span className="delivery-label">Message ID</span>
+                  <code>{deliveryReceipt.email_id}</code>
+                </div>
+                <button
+                  type="button"
+                  className="check-status-button"
+                  onClick={checkDeliveryStatus}
+                  disabled={checkingDelivery}
+                >
+                  {checkingDelivery ? "Checking…" : "Check delivery status"}
+                </button>
+              </div>
             )}
+
             {sendError && (
               <div className="send-status error">{sendError}</div>
             )}
 
             <p className="send-test-note">
-              The email uses the original delivery HTML. Until the Phase 1
-              asset pipeline is complete, a source website that blocks image
-              hotlinking can still cause missing images in the recipient inbox.
+              Yo-kai sends the original compiled HTML through the backend;
+              the Resend key never reaches the browser. With Resend's testing
+              sender, the provider may restrict delivery to the account owner's
+              address until a sending domain is verified. External website
+              images can also fail until the Phase 1 asset pipeline is complete.
             </p>
           </form>
 
