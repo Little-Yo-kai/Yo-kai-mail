@@ -5,6 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from .preview import build_preview_html
 from .service import _default_campaign_brief
 
 
@@ -41,6 +42,8 @@ class DemoGenerateApiTests(APITestCase):
             },
             "render": {
                 "html": "<!doctype html><html></html>",
+                "preview_html": "<!doctype html><html></html>",
+                "preview_asset_diagnostics": [],
                 "mjml": "<mjml></mjml>",
             },
         }
@@ -75,6 +78,8 @@ class DemoGenerateApiTests(APITestCase):
             },
             "render": {
                 "html": "<!doctype html><html></html>",
+                "preview_html": "<!doctype html><html></html>",
+                "preview_asset_diagnostics": [],
                 "mjml": "<mjml></mjml>",
             },
         }
@@ -102,3 +107,65 @@ class DemoGenerateApiTests(APITestCase):
         self.assertIsNotNone(
             generate_mock.call_args.kwargs["reference_image"]
         )
+
+
+
+class DemoPreviewHtmlTests(APITestCase):
+    @patch("demo_flow.preview._fetch_public_image")
+    def test_known_email_image_is_embedded_for_preview(self, fetch_mock):
+        fetch_mock.return_value = (
+            b"\x89PNG\r\n\x1a\npreview-bytes",
+            "image/png",
+            "https://cdn.example.com/hero.png",
+        )
+
+        source_html = (
+            '<html><body><img src="https://cdn.example.com/hero.png" '
+            'alt="Hero"></body></html>'
+        )
+
+        preview_html, diagnostics = build_preview_html(
+            html_document=source_html,
+            asset_inventory=[
+                {
+                    "asset_id": "hero_1",
+                    "kind": "hero",
+                    "url": "https://cdn.example.com/hero.png",
+                    "source": "brand_profile",
+                }
+            ],
+        )
+
+        self.assertIn("data:image/png;base64,", preview_html)
+        self.assertNotIn(
+            'src="https://cdn.example.com/hero.png"',
+            preview_html,
+        )
+        self.assertEqual(diagnostics[0]["status"], "embedded")
+
+    @patch("demo_flow.preview._fetch_public_image")
+    def test_unavailable_image_keeps_original_url(self, fetch_mock):
+        fetch_mock.side_effect = ValueError("Image request returned HTTP 403.")
+
+        source_html = (
+            '<html><body><img src="https://cdn.example.com/hero.png" '
+            'alt="Hero"></body></html>'
+        )
+
+        preview_html, diagnostics = build_preview_html(
+            html_document=source_html,
+            asset_inventory=[
+                {
+                    "asset_id": "hero_1",
+                    "kind": "hero",
+                    "url": "https://cdn.example.com/hero.png",
+                    "source": "brand_profile",
+                }
+            ],
+        )
+
+        self.assertIn(
+            'src="https://cdn.example.com/hero.png"',
+            preview_html,
+        )
+        self.assertEqual(diagnostics[0]["status"], "unavailable")
