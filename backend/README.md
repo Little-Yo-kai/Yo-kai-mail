@@ -646,3 +646,55 @@ friend/demo workflow:
 
 They are not removed from the codebase and Phase 1 must not be marked complete
 until they are finished.
+
+
+## Resend Test Delivery
+
+Yo-kai Mail keeps delivery separate from generation and rendering:
+
+```text
+EmailDesign -> MJML -> final HTML -> Resend -> recipient inbox
+```
+
+The Phase 1 demo includes a one-recipient test-send endpoint:
+
+```text
+POST /api/email-delivery/send-test/
+```
+
+Request:
+
+```json
+{
+  "to": "recipient@example.com",
+  "subject": "Generated subject",
+  "html": "<html>...</html>"
+}
+```
+
+Backend environment:
+
+```text
+RESEND_API_KEY=re_your_resend_api_key
+RESEND_FROM_EMAIL="Yo-kai Mail <onboarding@resend.dev>"
+RESEND_TEST_SEND_ENABLED=True
+```
+
+The API key must remain backend-only. The frontend never receives it.
+
+The endpoint uses Resend idempotency so repeating the exact same recipient,
+subject, and HTML during the provider's idempotency window does not accidentally
+send duplicate messages.
+
+For local development, test sending defaults to enabled when Django DEBUG is
+enabled. Outside DEBUG it is disabled unless explicitly enabled. Before exposing
+delivery publicly, add authentication, authorization, campaign persistence,
+recipient/contact controls, and abuse/rate-limit protections.
+
+For a branded production sender, replace the development sender with an address
+on a domain verified in Resend.
+
+The delivery endpoint sends the original final HTML, not the temporary
+data-URI-based browser preview HTML. Until the Phase 1 AssetLibrary/stable-hosting
+work is complete, website CDNs that block hotlinking may still cause images to be
+missing in a recipient inbox.
