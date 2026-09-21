@@ -8,6 +8,8 @@ from brand_intelligence.services.gemini import GeminiBrandService
 from website_intelligence.normalizers import build_website_snapshot
 from website_intelligence.services.firecrawl import FirecrawlService
 
+from .preview import build_preview_html
+
 
 class DemoGenerationError(RuntimeError):
     def __init__(
@@ -135,6 +137,11 @@ def generate_phase1_demo(
             render_result["mjml"]
         )
 
+        preview_html, preview_asset_diagnostics = build_preview_html(
+            html_document=compile_result["html"],
+            asset_inventory=design_result["asset_inventory"],
+        )
+
         return {
             "mode": (
                 "uploaded_reference"
@@ -149,6 +156,8 @@ def generate_phase1_demo(
             "asset_inventory": design_result["asset_inventory"],
             "render": {
                 "html": compile_result["html"],
+                "preview_html": preview_html,
+                "preview_asset_diagnostics": preview_asset_diagnostics,
                 "mjml": render_result["mjml"],
                 "compiler_errors": compile_result["compiler_errors"],
                 "resolved_theme": render_result["resolved_theme"],
