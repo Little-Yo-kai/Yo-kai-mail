@@ -22,6 +22,7 @@ urlpatterns = [
     path('api/email-rendering/', include('email_rendering.urls')),
     path('api/email-visual-qa/', include('email_visual_qa.urls')),
     path('api/demo/', include('demo_flow.urls')),
+    path('api/email-delivery/', include('email_delivery.urls')),
 
     # API Schema & Documentation Endpoints
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
