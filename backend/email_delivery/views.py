@@ -45,6 +45,10 @@ class TestEmailSendView(APIView):
                 to=serializer.validated_data["to"],
                 subject=serializer.validated_data["subject"],
                 html=serializer.validated_data["html"],
+                cached_assets=serializer.validated_data.get(
+                    "cached_assets",
+                    [],
+                ),
                 idempotency_key=serializer.validated_data.get(
                     "idempotency_key"
                 ),
