@@ -6,7 +6,10 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import TestEmailSendSerializer
+from .serializers import (
+    TestEmailSendSerializer,
+    TestEmailStatusResponseSerializer,
+)
 from .services.resend import (
     ResendDeliveryError,
     ResendEmailService,
@@ -93,8 +96,11 @@ class TestEmailSendView(APIView):
 
 
 class TestEmailStatusView(APIView):
+    serializer_class = TestEmailStatusResponseSerializer
+
     @extend_schema(
         request=None,
+        responses={200: TestEmailStatusResponseSerializer},
         summary="Get Resend status for a test email",
         description=(
             "Retrieves the latest provider event for one previously sent "
