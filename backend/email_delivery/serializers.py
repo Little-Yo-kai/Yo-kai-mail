@@ -54,3 +54,27 @@ class TestEmailSendSerializer(serializers.Serializer):
             seen_urls.add(source_url)
 
         return value
+
+
+
+class TestEmailStatusDataSerializer(serializers.Serializer):
+    email_id = serializers.CharField()
+    provider = serializers.CharField()
+    last_event = serializers.CharField()
+    created_at = serializers.CharField(
+        required=False,
+        allow_null=True,
+    )
+    to = serializers.ListField(
+        child=serializers.EmailField(),
+        required=False,
+    )
+    subject = serializers.CharField(
+        required=False,
+        allow_null=True,
+    )
+
+
+class TestEmailStatusResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = TestEmailStatusDataSerializer()
