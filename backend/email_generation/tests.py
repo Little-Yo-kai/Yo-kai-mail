@@ -427,7 +427,7 @@ class GeminiEmailDesignComposerTests(APITestCase):
 
 
     @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
-    def test_invalid_design_gets_one_bounded_repair_attempt(self):
+    def test_safe_structural_omissions_are_recovered_without_ai_retry(self):
         invalid_design = sample_email_design()
         invalid_design["sections"].insert(
             1,
@@ -452,6 +452,60 @@ class GeminiEmailDesignComposerTests(APITestCase):
         invalid_design["sections"][2]["cta"] = None
 
         client = Mock()
+        client.interactions.create.return_value = SimpleNamespace(
+            output_text=json.dumps(invalid_design)
+        )
+
+        composer = GeminiEmailDesignComposer(client=client)
+        result = composer.compose(
+            brand_profile=sample_brand_profile(),
+            reference_design_spec=sample_reference_spec(),
+            content_plan=sample_content_plan(),
+            asset_inventory=[
+                asset.model_dump(mode="json")
+                for asset in build_asset_inventory(
+                    sample_brand_profile()
+                )
+            ],
+            fact_ledger=sample_fact_ledger(),
+        )
+
+        self.assertEqual(client.interactions.create.call_count, 1)
+        self.assertTrue(result["email_design"]["sections"][1]["body"])
+        self.assertIsNotNone(
+            result["email_design"]["sections"][2]["cta"]
+        )
+        self.assertEqual(
+            result["email_design"]["sections"][2]["cta"]["url"],
+            "https://example.com/product",
+        )
+        self.assertGreaterEqual(len(result["recovery_actions"]), 2)
+
+    @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
+    def test_unrecoverable_design_gets_one_bounded_repair_attempt(self):
+        invalid_design = sample_email_design()
+        invalid_design["sections"].insert(
+            1,
+            {
+                "id": "grid",
+                "order": 2,
+                "type": "product_grid",
+                "layout": "grid_2",
+                "eyebrow": "PRODUCTS",
+                "headline": "Explore",
+                "body": None,
+                "asset_ids": [],
+                "items": [],
+                "cta": None,
+                "style": {
+                    "alignment": "center",
+                    "spacing": "balanced",
+                    "background_role": "transparent",
+                },
+            },
+        )
+
+        client = Mock()
         client.interactions.create.side_effect = [
             SimpleNamespace(
                 output_text=json.dumps(invalid_design)
@@ -464,49 +518,7 @@ class GeminiEmailDesignComposerTests(APITestCase):
         composer = GeminiEmailDesignComposer(client=client)
         result = composer.compose(
             brand_profile=sample_brand_profile(),
-            reference_design_spec={
-                "schema_version": "1.0",
-                "archetype": "Luxury Editorial Product Launch",
-                "summary": "Restrained image-led product launch.",
-                "visual_hierarchy": {
-                    "hero_dominance": "very_high",
-                    "image_to_text_balance": "image_heavy",
-                    "density": "low",
-                    "primary_alignment": "center",
-                },
-                "section_sequence": [
-                    {
-                        "order": 1,
-                        "type": "hero",
-                        "purpose": "Establish aspiration.",
-                        "layout": "Large editorial image.",
-                        "alignment": "center",
-                        "image_usage": "dominant",
-                        "copy_role": "emotional_hook",
-                    }
-                ],
-                "copy_formula": ["aspirational_hook"],
-                "cta_style": {
-                    "frequency": "low",
-                    "placement_pattern": "After persuasion.",
-                    "shape": "rectangular",
-                    "emphasis": "medium",
-                },
-                "spacing_rhythm": {
-                    "overall": "very_generous",
-                    "section_separation": "strong",
-                },
-                "design_rules": {
-                    "background_strategy": "Neutral.",
-                    "color_usage": "Restrained.",
-                    "typography_behavior": "Editorial.",
-                    "image_treatment": "Image-led.",
-                    "mobile_behavior": "Stack.",
-                },
-                "reusable_principles": ["Use restraint."],
-                "brand_specific_elements_to_ignore": [],
-                "confidence": 1.0,
-            },
+            reference_design_spec=sample_reference_spec(),
             content_plan=sample_content_plan(),
             asset_inventory=[
                 asset.model_dump(mode="json")
