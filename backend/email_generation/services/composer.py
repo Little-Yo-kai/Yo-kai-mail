@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from brand_intelligence.schemas import BrandProfile
 from reference_design.schemas import ReferenceDesignSpec
 
-from ..builders import normalize_email_design
+from ..builders import normalize_email_design, repair_email_design_payload
 from ..prompts import EMAIL_DESIGN_COMPOSER_PROMPT
 from ..schemas import AssetDescriptor, ContentPlan, EmailDesign, FactLedger
 from .gemini import (
@@ -56,6 +56,32 @@ class GeminiEmailDesignComposer:
             )
 
         return output_text
+
+    @staticmethod
+    def _validate_design_output(
+        output_text: str,
+        *,
+        content_plan: ContentPlan,
+        fact_ledger: FactLedger,
+    ) -> tuple[EmailDesign, list[str]]:
+        try:
+            payload = json.loads(output_text)
+        except json.JSONDecodeError:
+            return EmailDesign.model_validate_json(output_text), []
+
+        if not isinstance(payload, dict):
+            return EmailDesign.model_validate(payload), []
+
+        repaired_payload, recovery_actions = repair_email_design_payload(
+            payload,
+            content_plan=content_plan,
+            fact_ledger=fact_ledger,
+        )
+
+        return (
+            EmailDesign.model_validate(repaired_payload),
+            recovery_actions,
+        )
 
     @staticmethod
     def _repair_prompt(
@@ -138,9 +164,14 @@ class GeminiEmailDesignComposer:
 
         try:
             output_text = self._request_design(prompt)
+            recovery_actions: list[str] = []
 
             try:
-                design = EmailDesign.model_validate_json(output_text)
+                design, recovery_actions = self._validate_design_output(
+                    output_text,
+                    content_plan=plan,
+                    fact_ledger=facts,
+                )
             except (ValidationError, ValueError, TypeError) as first_error:
                 repair_prompt = self._repair_prompt(
                     original_prompt=prompt,
@@ -150,8 +181,16 @@ class GeminiEmailDesignComposer:
                 repaired_output = self._request_design(repair_prompt)
 
                 try:
-                    design = EmailDesign.model_validate_json(
-                        repaired_output
+                    (
+                        design,
+                        repaired_recovery_actions,
+                    ) = self._validate_design_output(
+                        repaired_output,
+                        content_plan=plan,
+                        fact_ledger=facts,
+                    )
+                    recovery_actions.extend(
+                        repaired_recovery_actions
                     )
                 except (
                     ValidationError,
@@ -181,6 +220,7 @@ class GeminiEmailDesignComposer:
 
         return {
             "email_design": design.model_dump(mode="json"),
+            "recovery_actions": recovery_actions,
             "asset_inventory": [
                 asset.model_dump(mode="json")
                 for asset in assets
