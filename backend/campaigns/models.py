@@ -103,6 +103,8 @@ class Campaign(models.Model):
     brand_profile = models.JSONField(default=dict, blank=True)
     reference = models.JSONField(default=dict, blank=True)
     content_plan = models.JSONField(default=dict, blank=True)
+    fact_ledger = models.JSONField(default=dict, blank=True)
+    asset_inventory = models.JSONField(default=list, blank=True)
 
     active_design = models.ForeignKey(
         "CampaignDesignVersion",
