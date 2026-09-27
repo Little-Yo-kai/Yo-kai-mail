@@ -175,7 +175,7 @@ def promote_campaign_assets(
     except (CampaignIntegrationError, CampaignGatewayExecutionError):
         raise
     except Exception as exc:
-        raise CampaignIntegrationError(
+        raise CampaignGatewayExecutionError(
             "Asset promotion returned an invalid contract."
         ) from exc
 
@@ -296,7 +296,7 @@ def revise_campaign_design(
     except (CampaignIntegrationError, CampaignGatewayExecutionError):
         raise
     except Exception as exc:
-        raise CampaignIntegrationError(
+        raise CampaignGatewayExecutionError(
             "Design revision returned an invalid contract."
         ) from exc
 
@@ -351,7 +351,7 @@ def resolve_campaign_audience(
     except (CampaignIntegrationError, CampaignGatewayExecutionError):
         raise
     except Exception as exc:
-        raise CampaignIntegrationError(
+        raise CampaignGatewayExecutionError(
             "Audience resolution returned an invalid contract."
         ) from exc
 
@@ -466,10 +466,15 @@ def queue_campaign_delivery(
             scheduled_for=scheduled_for,
             idempotency_key=effective_idempotency_key,
         )
-        result = DeliveryJobContract.model_validate(raw_result)
+        try:
+            result = DeliveryJobContract.model_validate(raw_result)
+        except Exception as exc:
+            raise CampaignGatewayExecutionError(
+                "Delivery creation returned an invalid contract."
+            ) from exc
 
         if result.mode != mode:
-            raise CampaignIntegrationError(
+            raise CampaignGatewayExecutionError(
                 "Delivery job mode does not match the campaign request."
             )
 
@@ -479,7 +484,7 @@ def queue_campaign_delivery(
             else {"queued", "scheduled"}
         )
         if result.status not in allowed_job_statuses:
-            raise CampaignIntegrationError(
+            raise CampaignGatewayExecutionError(
                 "Delivery job status is incompatible with the requested mode."
             )
     except Exception:
@@ -511,7 +516,7 @@ def get_campaign_delivery_summary(
     except CampaignGatewayExecutionError:
         raise
     except Exception as exc:
-        raise CampaignIntegrationError(
+        raise CampaignGatewayExecutionError(
             "Delivery summary returned an invalid contract."
         ) from exc
 
