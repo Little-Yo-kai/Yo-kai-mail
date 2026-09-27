@@ -609,6 +609,11 @@ class CampaignIntegrationContractTests(TestCase):
                 },
             )
 
+    @override_settings(
+        RESEND_API_KEY="test-key",
+        RESEND_FROM_EMAIL="Yo-kai Mail <test@example.com>",
+        RESEND_TEST_SEND_ENABLED=True,
+    )
     @patch("campaigns.integration_services.render_campaign_email")
     @patch("campaigns.services.ResendEmailService.send_test_email")
     @patch("campaigns.services.compile_mjml_to_html")
