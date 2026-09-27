@@ -172,6 +172,32 @@ EDITABLE_CAMPAIGN_STATUSES = {
 }
 
 
+def reset_campaign_after_design_change(campaign: Campaign) -> Campaign:
+    campaign.reviewed_at = None
+    campaign.test_sent_at = None
+    campaign.ready_at = None
+    if campaign.status == CampaignStatus.FAILED:
+        campaign.failed_at = None
+
+    campaign.save(
+        update_fields=[
+            "reviewed_at",
+            "test_sent_at",
+            "ready_at",
+            "failed_at",
+            "updated_at",
+        ]
+    )
+
+    if campaign.status != CampaignStatus.GENERATED:
+        transition_campaign(
+            campaign,
+            next_status=CampaignStatus.GENERATED,
+        )
+
+    return campaign
+
+
 @transaction.atomic
 def save_campaign_design(
     campaign: Campaign,
@@ -198,27 +224,7 @@ def save_campaign_design(
         source=DesignVersionSource.USER_EDIT,
     )
 
-    campaign.reviewed_at = None
-    campaign.test_sent_at = None
-    campaign.ready_at = None
-    if campaign.status == CampaignStatus.FAILED:
-        campaign.failed_at = None
-    campaign.save(
-        update_fields=[
-            "reviewed_at",
-            "test_sent_at",
-            "ready_at",
-            "failed_at",
-            "updated_at",
-        ]
-    )
-
-    if campaign.status != CampaignStatus.GENERATED:
-        transition_campaign(
-            campaign,
-            next_status=CampaignStatus.GENERATED,
-        )
-
+    reset_campaign_after_design_change(campaign)
     return version
 
 
