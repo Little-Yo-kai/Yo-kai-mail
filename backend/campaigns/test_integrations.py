@@ -151,6 +151,27 @@ class FakeDeliveryGateway:
         return self.summary
 
 
+class FailingDeliveryGateway:
+    def create_campaign_delivery(self, **kwargs):
+        raise CampaignGatewayExecutionError(
+            "Delivery provider is temporarily unavailable.",
+            retryable=True,
+            status_code=503,
+        )
+
+    def get_campaign_delivery_summary(self, **kwargs):
+        return {
+            "total": 0,
+            "queued": 0,
+            "sent": 0,
+            "delivered": 0,
+            "bounced": 0,
+            "complained": 0,
+            "failed": 0,
+            "last_event_at": None,
+        }
+
+
 class ConfiguredAudienceGateway:
     def resolve_campaign_audience(self, **kwargs):
         return {
@@ -478,6 +499,31 @@ class CampaignIntegrationContractTests(TestCase):
                 "campaign-"
             )
         )
+
+    @patch("campaigns.integration_services.render_campaign_email")
+    def test_delivery_provider_failure_marks_claimed_campaign_failed(
+        self,
+        render_mock,
+    ):
+        campaign = self.create_campaign(status=CampaignStatus.READY)
+        campaign.audience_snapshot_id = uuid4()
+        campaign.save(
+            update_fields=["audience_snapshot_id", "updated_at"]
+        )
+        render_mock.return_value = {
+            "html": "<html>Final campaign</html>",
+        }
+
+        with self.assertRaises(CampaignGatewayExecutionError):
+            queue_campaign_delivery(
+                campaign,
+                gateway=FailingDeliveryGateway(),
+                mode=CampaignSendMode.SEND_NOW,
+            )
+
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, CampaignStatus.FAILED)
+        self.assertIsNotNone(campaign.failed_at)
 
     @patch("campaigns.integration_services.render_campaign_email")
     def test_scheduled_contract_moves_ready_campaign_to_scheduled(
