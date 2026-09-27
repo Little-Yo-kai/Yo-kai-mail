@@ -177,6 +177,25 @@ RESEND_TEST_SEND_ENABLED = env.bool(
     default=DEBUG,
 )
 
+# Campaign integration gateways. Teammate-owned implementations plug into
+# these import paths without creating direct app-to-app model imports.
+CAMPAIGN_ASSET_PROMOTION_GATEWAY = env(
+    'CAMPAIGN_ASSET_PROMOTION_GATEWAY',
+    default='',
+)
+CAMPAIGN_DESIGN_REVISION_GATEWAY = env(
+    'CAMPAIGN_DESIGN_REVISION_GATEWAY',
+    default='',
+)
+CAMPAIGN_AUDIENCE_GATEWAY = env(
+    'CAMPAIGN_AUDIENCE_GATEWAY',
+    default='',
+)
+CAMPAIGN_DELIVERY_GATEWAY = env(
+    'CAMPAIGN_DELIVERY_GATEWAY',
+    default='',
+)
+
 EMAIL_ASSET_CACHE_DIR = env(
     'EMAIL_ASSET_CACHE_DIR',
     default=str(BASE_DIR / '.cache' / 'email_assets'),
