@@ -51,10 +51,14 @@ class DeliveryJobContract(BaseModel):
     scheduled_for: datetime | None = None
 
     @model_validator(mode="after")
-    def scheduled_job_requires_time(self):
+    def validate_schedule_shape(self):
         if self.mode == "scheduled" and self.scheduled_for is None:
             raise ValueError(
                 "scheduled_for is required for a scheduled delivery job."
+            )
+        if self.mode == "send_now" and self.scheduled_for is not None:
+            raise ValueError(
+                "scheduled_for must be empty for immediate delivery."
             )
         return self
 
