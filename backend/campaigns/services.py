@@ -3,6 +3,10 @@ from django.db.models import Max
 from django.utils import timezone
 
 from demo_flow.service import generate_phase1_demo
+from email_delivery.services.resend import ResendEmailService
+from email_generation.schemas import EmailDesign
+from email_rendering.compiler import compile_mjml_to_html
+from email_rendering.renderer import render_email_to_mjml
 
 from .models import (
     Campaign,
@@ -13,6 +17,10 @@ from .models import (
 
 
 class CampaignTransitionError(ValueError):
+    pass
+
+
+class CampaignWorkflowError(ValueError):
     pass
 
 
@@ -113,6 +121,8 @@ def generate_campaign(
     campaign.brand_profile = result.get("brand_profile") or {}
     campaign.reference = result.get("reference") or {}
     campaign.content_plan = result.get("content_plan") or {}
+    campaign.fact_ledger = result.get("fact_ledger") or {}
+    campaign.asset_inventory = result.get("asset_inventory") or []
 
     campaign.save(
         update_fields=[
@@ -120,6 +130,8 @@ def generate_campaign(
             "brand_profile",
             "reference",
             "content_plan",
+            "fact_ledger",
+            "asset_inventory",
             "updated_at",
         ]
     )
@@ -148,3 +160,145 @@ def generate_campaign(
             )
 
     return campaign
+
+
+
+EDITABLE_CAMPAIGN_STATUSES = {
+    CampaignStatus.GENERATED,
+    CampaignStatus.REVIEWED,
+    CampaignStatus.TEST_SENT,
+    CampaignStatus.READY,
+    CampaignStatus.FAILED,
+}
+
+
+@transaction.atomic
+def save_campaign_design(
+    campaign: Campaign,
+    *,
+    email_design: dict,
+    user,
+) -> CampaignDesignVersion:
+    if campaign.status not in EDITABLE_CAMPAIGN_STATUSES:
+        raise CampaignWorkflowError(
+            "Campaign design cannot be edited in its current state."
+        )
+
+    try:
+        validated_design = EmailDesign.model_validate(email_design)
+    except Exception as exc:
+        raise CampaignWorkflowError(
+            "EmailDesign does not satisfy the current schema."
+        ) from exc
+
+    version = create_design_version(
+        campaign,
+        email_design=validated_design.model_dump(mode="json"),
+        user=user,
+        source=DesignVersionSource.USER_EDIT,
+    )
+
+    campaign.reviewed_at = None
+    campaign.test_sent_at = None
+    campaign.ready_at = None
+    if campaign.status == CampaignStatus.FAILED:
+        campaign.failed_at = None
+    campaign.save(
+        update_fields=[
+            "reviewed_at",
+            "test_sent_at",
+            "ready_at",
+            "failed_at",
+            "updated_at",
+        ]
+    )
+
+    if campaign.status != CampaignStatus.GENERATED:
+        transition_campaign(
+            campaign,
+            next_status=CampaignStatus.GENERATED,
+        )
+
+    return version
+
+
+def render_campaign_email(campaign: Campaign) -> dict:
+    if campaign.active_design_id is None:
+        raise CampaignWorkflowError(
+            "Campaign has no active EmailDesign to render."
+        )
+
+    if not campaign.brand_profile:
+        raise CampaignWorkflowError(
+            "Campaign has no persisted BrandProfile."
+        )
+
+    render_result = render_email_to_mjml(
+        brand_profile=campaign.brand_profile,
+        email_design=campaign.active_design.email_design,
+        asset_inventory=campaign.asset_inventory,
+    )
+    compile_result = compile_mjml_to_html(render_result["mjml"])
+
+    return {
+        "html": compile_result["html"],
+        "mjml": render_result["mjml"],
+        "compiler_errors": compile_result["compiler_errors"],
+        "resolved_theme": render_result["resolved_theme"],
+        "rendered_sections": render_result["rendered_sections"],
+        "available_asset_ids": render_result["available_asset_ids"],
+    }
+
+
+@transaction.atomic
+def send_campaign_test(
+    campaign: Campaign,
+    *,
+    to: str,
+    idempotency_key: str | None = None,
+) -> dict:
+    if campaign.status not in {
+        CampaignStatus.GENERATED,
+        CampaignStatus.REVIEWED,
+        CampaignStatus.TEST_SENT,
+        CampaignStatus.READY,
+    }:
+        raise CampaignWorkflowError(
+            "Campaign is not in a state that can send a test email."
+        )
+
+    render_result = render_campaign_email(campaign)
+
+    if campaign.status == CampaignStatus.GENERATED:
+        transition_campaign(
+            campaign,
+            next_status=CampaignStatus.REVIEWED,
+        )
+
+    delivery = ResendEmailService().send_test_email(
+        to=to,
+        subject=campaign.active_design.email_design["subject"],
+        html=render_result["html"],
+        cached_assets=[],
+        idempotency_key=idempotency_key,
+    )
+
+    if campaign.status == CampaignStatus.REVIEWED:
+        transition_campaign(
+            campaign,
+            next_status=CampaignStatus.TEST_SENT,
+        )
+    elif campaign.status == CampaignStatus.TEST_SENT:
+        campaign.test_sent_at = timezone.now()
+        campaign.save(update_fields=["test_sent_at", "updated_at"])
+    elif campaign.status == CampaignStatus.READY:
+        campaign.test_sent_at = timezone.now()
+        campaign.save(update_fields=["test_sent_at", "updated_at"])
+
+    return {
+        "delivery": delivery,
+        "render": {
+            "compiler_errors": render_result["compiler_errors"],
+            "rendered_sections": render_result["rendered_sections"],
+        },
+    }

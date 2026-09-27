@@ -231,3 +231,140 @@ This Sprint 0 skeleton does not yet implement:
 - workspace/team ownership
 
 Those are separate contract-driven checkpoints.
+
+
+## Phase 2 workflow additions
+
+### Persisted generation context
+
+Campaign generation now persists the additional internal context needed to
+continue the workflow after a restart:
+
+- `fact_ledger`
+- `asset_inventory`
+
+The renderer therefore does not require the frontend to resend these contracts.
+
+### Save active design version
+
+`PUT /api/campaigns/{campaign_id}/design/`
+
+Request:
+
+```json
+{
+  "email_design": {
+    "...": "current EmailDesign v1 contract"
+  }
+}
+```
+
+The submitted design is schema-validated before it is stored.
+
+A successful save:
+
+- creates a new `CampaignDesignVersion`
+- marks its source as `user_edit`
+- makes it the campaign's `active_design`
+- preserves previous design versions
+- returns the campaign to `generated` if it had already been reviewed,
+  test-sent or marked ready
+- clears stale review/test-ready timestamps
+
+This is the endpoint Friend 4's editor/autosave layer should call. The editor
+must never store raw MJML or raw HTML as campaign state.
+
+### Render active campaign design
+
+`GET /api/campaigns/{campaign_id}/render/`
+
+The backend loads:
+
+```text
+Campaign.brand_profile
++ Campaign.active_design.email_design
++ Campaign.asset_inventory
+        ↓
+deterministic MJML renderer
+        ↓
+MJML compiler
+        ↓
+HTML
+```
+
+This keeps rendering inputs server-owned and prevents the frontend from
+manually chaining internal contracts.
+
+The response currently includes:
+
+- `html`
+- `mjml`
+- compiler diagnostics
+- resolved theme
+- rendered section count
+- available asset IDs
+
+Friend 4 can use this route for campaign preview until a narrower preview
+response is agreed.
+
+### Send campaign test
+
+`POST /api/campaigns/{campaign_id}/send-test/`
+
+Request:
+
+```json
+{
+  "to": "recipient@example.com"
+}
+```
+
+Optional:
+
+- `idempotency_key`
+
+The endpoint:
+
+1. loads the active persisted design
+2. renders it through the deterministic renderer
+3. compiles the exact campaign HTML
+4. sends one recipient through the existing Resend test-delivery boundary
+5. records lifecycle state/timestamps
+
+State behavior:
+
+```text
+generated
+   ↓
+reviewed
+   ↓
+test_sent
+```
+
+A successful repeat test while already `test_sent` refreshes the test-send
+timestamp. A test sent while `ready` does not invalidate readiness when the
+design itself has not changed.
+
+Provider-specific delivery records remain Friend 5's ownership. This endpoint
+is an orchestration boundary, not the final bulk-send implementation.
+
+### Current integration acceptance path
+
+The integration test for this checkpoint exercises:
+
+```text
+persisted generated campaign
+        ↓
+real deterministic renderer
+        ↓
+mocked MJML compiler subprocess
+        ↓
+mocked Resend provider boundary
+        ↓
+test_sent
+        ↓
+ready
+```
+
+Only the external/runtime edges are mocked; campaign persistence, renderer
+input assembly, state transitions and API boundaries are real.

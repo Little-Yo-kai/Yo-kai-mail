@@ -8,20 +8,33 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from demo_flow.service import DemoGenerationError
+from email_delivery.services.resend import (
+    ResendDeliveryError,
+    ResendNotConfiguredError,
+)
+from email_rendering.compiler import MJMLCompilerError
+from email_rendering.renderer import EmailRenderInputError
 
 from .builders import build_campaign_brief
 from .models import Campaign
 from .serializers import (
     CampaignBriefSerializer,
     CampaignCreateSerializer,
+    CampaignDesignSaveSerializer,
     CampaignGenerateSerializer,
+    CampaignRenderResponseSerializer,
     CampaignSerializer,
+    CampaignTestSendSerializer,
     CampaignTransitionSerializer,
     CampaignUpdateSerializer,
 )
 from .services import (
     CampaignTransitionError,
+    CampaignWorkflowError,
     generate_campaign,
+    render_campaign_email,
+    save_campaign_design,
+    send_campaign_test,
     transition_campaign,
 )
 
@@ -235,6 +248,207 @@ class CampaignTransitionView(APIView):
             {
                 "success": True,
                 "data": CampaignSerializer(campaign).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+class CampaignDesignView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CampaignDesignSaveSerializer
+
+    @extend_schema(
+        request=CampaignDesignSaveSerializer,
+        responses={200: CampaignSerializer},
+        summary="Save a validated EmailDesign version",
+        description=(
+            "Stores a new user-edit design version and makes it active. "
+            "Saving a changed design invalidates prior reviewed/test-ready "
+            "state by returning the campaign to generated."
+        ),
+    )
+    def put(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+        serializer = CampaignDesignSaveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            save_campaign_design(
+                campaign,
+                email_design=serializer.validated_data["email_design"],
+                user=request.user,
+            )
+        except CampaignWorkflowError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        campaign.refresh_from_db()
+
+        return Response(
+            {
+                "success": True,
+                "data": CampaignSerializer(campaign).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CampaignRenderView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CampaignRenderResponseSerializer
+
+    @extend_schema(
+        responses={200: CampaignRenderResponseSerializer},
+        summary="Render the campaign's active EmailDesign",
+        description=(
+            "Renders from persisted BrandProfile, EmailDesign and asset "
+            "inventory so clients do not manually assemble renderer inputs."
+        ),
+    )
+    def get(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+
+        try:
+            render_result = render_campaign_email(campaign)
+        except CampaignWorkflowError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except EmailRenderInputError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": "Persisted campaign render input is invalid.",
+                    "details": str(exc) if settings.DEBUG else None,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except MJMLCompilerError as exc:
+            payload = {
+                "success": False,
+                "error": str(exc),
+            }
+            if settings.DEBUG and exc.details:
+                payload["details"] = exc.details
+            return Response(
+                payload,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "data": render_result,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CampaignTestSendView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CampaignTestSendSerializer
+
+    @extend_schema(
+        request=CampaignTestSendSerializer,
+        summary="Send the active campaign design as a test email",
+        description=(
+            "Renders the campaign from persisted state and sends one test "
+            "recipient through the existing Resend delivery boundary."
+        ),
+    )
+    def post(self, request, campaign_id):
+        if not settings.RESEND_TEST_SEND_ENABLED:
+            return Response(
+                {
+                    "success": False,
+                    "error": "Test email sending is disabled.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        campaign = _owned_campaign(request, campaign_id)
+        serializer = CampaignTestSendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            result = send_campaign_test(
+                campaign,
+                to=serializer.validated_data["to"],
+                idempotency_key=serializer.validated_data.get(
+                    "idempotency_key"
+                ),
+            )
+        except CampaignWorkflowError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(exc),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except EmailRenderInputError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": "Persisted campaign render input is invalid.",
+                    "details": str(exc) if settings.DEBUG else None,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except MJMLCompilerError as exc:
+            payload = {
+                "success": False,
+                "error": str(exc),
+            }
+            if settings.DEBUG and exc.details:
+                payload["details"] = exc.details
+            return Response(
+                payload,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except ResendNotConfiguredError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(exc),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except ResendDeliveryError as exc:
+            payload = {
+                "success": False,
+                "error": str(exc),
+            }
+            if settings.DEBUG and exc.details:
+                payload["details"] = exc.details
+
+            response_status = status.HTTP_502_BAD_GATEWAY
+            if exc.status_code == 429:
+                response_status = status.HTTP_429_TOO_MANY_REQUESTS
+            elif exc.status_code in {400, 401, 403, 409, 422}:
+                response_status = status.HTTP_400_BAD_REQUEST
+
+            return Response(payload, status=response_status)
+
+        campaign.refresh_from_db()
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "campaign": CampaignSerializer(campaign).data,
+                    **result,
+                },
             },
             status=status.HTTP_200_OK,
         )
