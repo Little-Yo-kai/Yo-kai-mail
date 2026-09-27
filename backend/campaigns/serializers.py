@@ -209,10 +209,7 @@ class CampaignUpdateSerializer(serializers.ModelSerializer):
 
 class CampaignSerializer(serializers.ModelSerializer):
     active_design = CampaignDesignVersionSerializer(read_only=True)
-    owner_id = serializers.IntegerField(
-        source="owner_id",
-        read_only=True,
-    )
+    owner_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Campaign
