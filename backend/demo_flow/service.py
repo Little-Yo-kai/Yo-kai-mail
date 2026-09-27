@@ -156,7 +156,12 @@ def generate_phase1_demo(
             "campaign_brief": campaign_brief,
             "reference": reference,
             "content_plan": plan_result["content_plan"],
+            "fact_ledger": plan_result["fact_ledger"],
             "email_design": design_result["email_design"],
+            "generation_recovery_actions": design_result.get(
+                "recovery_actions",
+                [],
+            ),
             "asset_inventory": design_result["asset_inventory"],
             "render": {
                 "html": compile_result["html"],
