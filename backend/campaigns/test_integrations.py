@@ -346,11 +346,17 @@ class CampaignIntegrationContractTests(TestCase):
         campaign.reviewed_at = timezone.now()
         campaign.test_sent_at = timezone.now()
         campaign.ready_at = timezone.now()
+        campaign.audience_snapshot_id = uuid4()
+        campaign.send_mode = CampaignSendMode.SCHEDULED
+        campaign.scheduled_for = timezone.now() + timedelta(hours=2)
         campaign.save(
             update_fields=[
                 "reviewed_at",
                 "test_sent_at",
                 "ready_at",
+                "audience_snapshot_id",
+                "send_mode",
+                "scheduled_for",
                 "updated_at",
             ]
         )
@@ -381,6 +387,9 @@ class CampaignIntegrationContractTests(TestCase):
         self.assertIsNone(campaign.reviewed_at)
         self.assertIsNone(campaign.test_sent_at)
         self.assertIsNone(campaign.ready_at)
+        self.assertIsNone(campaign.audience_snapshot_id)
+        self.assertEqual(campaign.send_mode, CampaignSendMode.NONE)
+        self.assertIsNone(campaign.scheduled_for)
 
     def test_audience_resolution_persists_immutable_snapshot_reference(self):
         campaign = self.create_campaign(status=CampaignStatus.READY)
