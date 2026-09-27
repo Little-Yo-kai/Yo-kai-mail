@@ -15,6 +15,7 @@ from .contracts import (
     AudienceSnapshotContract,
     DeliveryGateway,
     DeliveryJobContract,
+    DeliveryStateUpdateContract,
     DeliverySummaryContract,
     DesignRevisionGateway,
     DesignRevisionResult,
@@ -391,6 +392,16 @@ def queue_campaign_delivery(
             "Delivery job mode does not match the campaign request."
         )
 
+    allowed_job_statuses = (
+        {"queued", "sending"}
+        if mode == CampaignSendMode.SEND_NOW
+        else {"queued", "scheduled"}
+    )
+    if result.status not in allowed_job_statuses:
+        raise CampaignIntegrationError(
+            "Delivery job status is incompatible with the requested mode."
+        )
+
     campaign.send_mode = mode
     campaign.scheduled_for = scheduled_for
     campaign.save(
@@ -428,3 +439,67 @@ def get_campaign_delivery_summary(
         raise CampaignIntegrationError(
             "Delivery summary returned an invalid contract."
         ) from exc
+
+
+
+def apply_campaign_delivery_state(
+    campaign: Campaign,
+    *,
+    update: DeliveryStateUpdateContract | dict,
+) -> Campaign:
+    try:
+        state = DeliveryStateUpdateContract.model_validate(update)
+    except Exception as exc:
+        raise CampaignIntegrationError(
+            "Delivery state update does not satisfy the contract."
+        ) from exc
+
+    if state.status == "scheduled":
+        if campaign.status != CampaignStatus.SCHEDULED:
+            raise CampaignIntegrationError(
+                "Only a scheduled campaign can receive a scheduled update."
+            )
+        return campaign
+
+    if state.status == "sending":
+        if campaign.status == CampaignStatus.SENDING:
+            return campaign
+        if campaign.status != CampaignStatus.SCHEDULED:
+            raise CampaignIntegrationError(
+                "Campaign cannot enter sending from its current state."
+            )
+        return transition_campaign(
+            campaign,
+            next_status=CampaignStatus.SENDING,
+        )
+
+    if state.status == "sent":
+        if campaign.status == CampaignStatus.SENT:
+            return campaign
+        if campaign.status != CampaignStatus.SENDING:
+            raise CampaignIntegrationError(
+                "Campaign cannot be marked sent before sending."
+            )
+        return transition_campaign(
+            campaign,
+            next_status=CampaignStatus.SENT,
+        )
+
+    if state.status == "failed":
+        if campaign.status == CampaignStatus.FAILED:
+            return campaign
+        if campaign.status not in {
+            CampaignStatus.SCHEDULED,
+            CampaignStatus.SENDING,
+        }:
+            raise CampaignIntegrationError(
+                "Campaign cannot be marked failed from its current state."
+            )
+        return transition_campaign(
+            campaign,
+            next_status=CampaignStatus.FAILED,
+        )
+
+    raise CampaignIntegrationError(
+        "Unsupported campaign delivery state."
+    )
