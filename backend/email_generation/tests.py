@@ -88,17 +88,46 @@ def sample_reference_spec():
         "schema_version": "1.0",
         "archetype": "Luxury Editorial Product Launch",
         "summary": "Restrained image-led product launch.",
+        "visual_hierarchy": {
+            "hero_dominance": "very_high",
+            "image_to_text_balance": "image_heavy",
+            "density": "low",
+            "primary_alignment": "center",
+        },
         "section_sequence": [
             {
                 "order": 1,
                 "type": "hero",
                 "purpose": "Establish aspiration.",
+                "layout": "Large editorial image.",
+                "alignment": "center",
+                "image_usage": "dominant",
+                "copy_role": "emotional_hook",
             }
         ],
+        "copy_formula": ["aspirational_hook"],
+        "cta_style": {
+            "frequency": "low",
+            "placement_pattern": "After persuasion.",
+            "shape": "rectangular",
+            "emphasis": "medium",
+        },
+        "spacing_rhythm": {
+            "overall": "very_generous",
+            "section_separation": "strong",
+        },
+        "design_rules": {
+            "background_strategy": "Neutral.",
+            "color_usage": "Restrained.",
+            "typography_behavior": "Editorial.",
+            "image_treatment": "Image-led.",
+            "mobile_behavior": "Stack.",
+        },
         "reusable_principles": [
             "Use restraint as a premium signal.",
         ],
         "brand_specific_elements_to_ignore": [],
+        "confidence": 1.0,
     }
 
 
@@ -353,49 +382,7 @@ class GeminiEmailDesignComposerTests(APITestCase):
         composer = GeminiEmailDesignComposer(client=client)
         result = composer.compose(
             brand_profile=sample_brand_profile(),
-            reference_design_spec={
-                "schema_version": "1.0",
-                "archetype": "Luxury Editorial Product Launch",
-                "summary": "Restrained image-led product launch.",
-                "visual_hierarchy": {
-                    "hero_dominance": "very_high",
-                    "image_to_text_balance": "image_heavy",
-                    "density": "low",
-                    "primary_alignment": "center",
-                },
-                "section_sequence": [
-                    {
-                        "order": 1,
-                        "type": "hero",
-                        "purpose": "Establish aspiration.",
-                        "layout": "Large editorial image.",
-                        "alignment": "center",
-                        "image_usage": "dominant",
-                        "copy_role": "emotional_hook",
-                    }
-                ],
-                "copy_formula": ["aspirational_hook"],
-                "cta_style": {
-                    "frequency": "low",
-                    "placement_pattern": "After persuasion.",
-                    "shape": "rectangular",
-                    "emphasis": "medium",
-                },
-                "spacing_rhythm": {
-                    "overall": "very_generous",
-                    "section_separation": "strong",
-                },
-                "design_rules": {
-                    "background_strategy": "Neutral.",
-                    "color_usage": "Restrained.",
-                    "typography_behavior": "Editorial.",
-                    "image_treatment": "Image-led.",
-                    "mobile_behavior": "Stack.",
-                },
-                "reusable_principles": ["Use restraint."],
-                "brand_specific_elements_to_ignore": [],
-                "confidence": 1.0,
-            },
+            reference_design_spec=sample_reference_spec(),
             content_plan=sample_content_plan(),
             asset_inventory=[
                 asset.model_dump(mode="json")
