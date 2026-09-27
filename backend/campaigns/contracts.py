@@ -59,6 +59,13 @@ class DeliveryJobContract(BaseModel):
         return self
 
 
+class DeliveryStateUpdateContract(BaseModel):
+    job_id: str = Field(min_length=1, max_length=200)
+    status: Literal["scheduled", "sending", "sent", "failed"]
+    error_code: str | None = Field(default=None, max_length=100)
+    error_message: str | None = Field(default=None, max_length=1000)
+
+
 class DeliverySummaryContract(BaseModel):
     total: int = Field(ge=0)
     queued: int = Field(default=0, ge=0)
