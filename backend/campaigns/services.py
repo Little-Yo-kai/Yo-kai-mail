@@ -11,6 +11,7 @@ from email_rendering.renderer import render_email_to_mjml
 from .models import (
     Campaign,
     CampaignDesignVersion,
+    CampaignSendMode,
     CampaignStatus,
     DesignVersionSource,
 )
@@ -212,11 +213,11 @@ def generate_campaign(
             source=DesignVersionSource.GENERATED,
         )
 
-        if campaign.status != CampaignStatus.GENERATED:
-            transition_campaign(
-                campaign,
-                next_status=CampaignStatus.GENERATED,
-            )
+        reset_campaign_after_design_change(campaign)
+        campaign.generated_at = timezone.now()
+        campaign.save(
+            update_fields=["generated_at", "updated_at"]
+        )
 
     return campaign
 
@@ -235,15 +236,22 @@ def reset_campaign_after_design_change(campaign: Campaign) -> Campaign:
     campaign.reviewed_at = None
     campaign.test_sent_at = None
     campaign.ready_at = None
-    if campaign.status == CampaignStatus.FAILED:
-        campaign.failed_at = None
+    campaign.sending_at = None
+    campaign.failed_at = None
+    campaign.audience_snapshot_id = None
+    campaign.send_mode = CampaignSendMode.NONE
+    campaign.scheduled_for = None
 
     campaign.save(
         update_fields=[
             "reviewed_at",
             "test_sent_at",
             "ready_at",
+            "sending_at",
             "failed_at",
+            "audience_snapshot_id",
+            "send_mode",
+            "scheduled_for",
             "updated_at",
         ]
     )
