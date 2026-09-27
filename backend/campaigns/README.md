@@ -411,7 +411,7 @@ Campaign requirements:
 - every asset referenced by the active EmailDesign must resolve
 - returned asset IDs must match required asset IDs exactly
 - asset kind may not change during promotion
-- final URL must be public HTTP(S)
+- final URL must be public HTTPS
 - promoted URLs are written back into Campaign.asset_inventory
 - promoted descriptors use source=`asset_library`
 
@@ -618,7 +618,7 @@ Final campaign delivery requires:
 2. a successful test send before `ready`
 3. an immutable audience snapshot
 4. every image referenced by the active design to be promoted to a stable
-   public HTTP(S) asset URL
+   public HTTPS asset URL
 5. an explicit immediate or scheduled send mode
 
 The campaign layer derives a deterministic idempotency key from campaign,
