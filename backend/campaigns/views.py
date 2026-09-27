@@ -16,13 +16,26 @@ from email_rendering.compiler import MJMLCompilerError
 from email_rendering.renderer import EmailRenderInputError
 
 from .builders import build_campaign_brief
-from .models import Campaign
+from .gateways import CampaignGatewayUnavailable, load_campaign_gateway
+from .integration_services import (
+    CampaignIntegrationError,
+    get_campaign_delivery_summary,
+    promote_campaign_assets,
+    queue_campaign_delivery,
+    resolve_campaign_audience,
+    revise_campaign_design,
+)
+from .models import Campaign, CampaignSendMode
 from .serializers import (
+    CampaignAudienceResolveSerializer,
     CampaignBriefSerializer,
     CampaignCreateSerializer,
+    CampaignDeliveryRequestSerializer,
     CampaignDesignSaveSerializer,
     CampaignGenerateSerializer,
     CampaignRenderResponseSerializer,
+    CampaignRevisionSerializer,
+    CampaignScheduleRequestSerializer,
     CampaignSerializer,
     CampaignTestSendSerializer,
     CampaignTransitionSerializer,
@@ -44,6 +57,26 @@ def _owned_campaign(request, campaign_id):
         Campaign.objects.select_related("active_design"),
         id=campaign_id,
         owner=request.user,
+    )
+
+
+def _gateway_unavailable_response(exc):
+    return Response(
+        {
+            "success": False,
+            "error": str(exc),
+        },
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
+
+def _integration_conflict_response(exc):
+    return Response(
+        {
+            "success": False,
+            "error": str(exc),
+        },
+        status=status.HTTP_409_CONFLICT,
     )
 
 
@@ -449,6 +482,262 @@ class CampaignTestSendView(APIView):
                     "campaign": CampaignSerializer(campaign).data,
                     **result,
                 },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+
+class CampaignAssetPromotionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=None,
+        summary="Promote active campaign assets to stable public URLs",
+    )
+    def post(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+
+        try:
+            gateway = load_campaign_gateway("assets")
+            result = promote_campaign_assets(
+                campaign,
+                gateway=gateway,
+            )
+        except CampaignGatewayUnavailable as exc:
+            return _gateway_unavailable_response(exc)
+        except CampaignIntegrationError as exc:
+            return _integration_conflict_response(exc)
+
+        campaign.refresh_from_db()
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "campaign": CampaignSerializer(campaign).data,
+                    "promotion": result.model_dump(mode="json"),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CampaignRevisionView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CampaignRevisionSerializer
+
+    @extend_schema(
+        request=CampaignRevisionSerializer,
+        summary="Create an AI-revised campaign design version",
+    )
+    def post(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+        serializer = CampaignRevisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            gateway = load_campaign_gateway("revision")
+            version, result = revise_campaign_design(
+                campaign,
+                gateway=gateway,
+                instruction=serializer.validated_data["instruction"],
+                user=request.user,
+            )
+        except CampaignGatewayUnavailable as exc:
+            return _gateway_unavailable_response(exc)
+        except CampaignIntegrationError as exc:
+            return _integration_conflict_response(exc)
+
+        campaign.refresh_from_db()
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "campaign": CampaignSerializer(campaign).data,
+                    "design_version_id": str(version.id),
+                    "revision_notes": result.revision_notes,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CampaignAudienceResolveView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CampaignAudienceResolveSerializer
+
+    @extend_schema(
+        request=CampaignAudienceResolveSerializer,
+        summary="Resolve and persist an immutable campaign audience snapshot",
+    )
+    def post(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+        serializer = CampaignAudienceResolveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            gateway = load_campaign_gateway("audience")
+            result = resolve_campaign_audience(
+                campaign,
+                gateway=gateway,
+                selection=serializer.validated_data["selection"],
+            )
+        except CampaignGatewayUnavailable as exc:
+            return _gateway_unavailable_response(exc)
+        except CampaignIntegrationError as exc:
+            return _integration_conflict_response(exc)
+
+        campaign.refresh_from_db()
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "campaign": CampaignSerializer(campaign).data,
+                    "audience_snapshot": result.model_dump(mode="json"),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CampaignSendView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CampaignDeliveryRequestSerializer
+
+    @extend_schema(
+        request=CampaignDeliveryRequestSerializer,
+        summary="Queue an immediate campaign delivery",
+    )
+    def post(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+        serializer = CampaignDeliveryRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            gateway = load_campaign_gateway("delivery")
+            result = queue_campaign_delivery(
+                campaign,
+                gateway=gateway,
+                mode=CampaignSendMode.SEND_NOW,
+                idempotency_key=serializer.validated_data.get(
+                    "idempotency_key"
+                ),
+            )
+        except CampaignGatewayUnavailable as exc:
+            return _gateway_unavailable_response(exc)
+        except CampaignIntegrationError as exc:
+            return _integration_conflict_response(exc)
+        except EmailRenderInputError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": "Persisted campaign render input is invalid.",
+                    "details": str(exc) if settings.DEBUG else None,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except MJMLCompilerError as exc:
+            payload = {"success": False, "error": str(exc)}
+            if settings.DEBUG and exc.details:
+                payload["details"] = exc.details
+            return Response(payload, status=status.HTTP_502_BAD_GATEWAY)
+
+        campaign.refresh_from_db()
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "campaign": CampaignSerializer(campaign).data,
+                    "delivery_job": result.model_dump(mode="json"),
+                },
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class CampaignScheduleView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CampaignScheduleRequestSerializer
+
+    @extend_schema(
+        request=CampaignScheduleRequestSerializer,
+        summary="Schedule a campaign delivery",
+    )
+    def post(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+        serializer = CampaignScheduleRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            gateway = load_campaign_gateway("delivery")
+            result = queue_campaign_delivery(
+                campaign,
+                gateway=gateway,
+                mode=CampaignSendMode.SCHEDULED,
+                scheduled_for=serializer.validated_data["scheduled_for"],
+                idempotency_key=serializer.validated_data.get(
+                    "idempotency_key"
+                ),
+            )
+        except CampaignGatewayUnavailable as exc:
+            return _gateway_unavailable_response(exc)
+        except CampaignIntegrationError as exc:
+            return _integration_conflict_response(exc)
+        except EmailRenderInputError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "error": "Persisted campaign render input is invalid.",
+                    "details": str(exc) if settings.DEBUG else None,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except MJMLCompilerError as exc:
+            payload = {"success": False, "error": str(exc)}
+            if settings.DEBUG and exc.details:
+                payload["details"] = exc.details
+            return Response(payload, status=status.HTTP_502_BAD_GATEWAY)
+
+        campaign.refresh_from_db()
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "campaign": CampaignSerializer(campaign).data,
+                    "delivery_job": result.model_dump(mode="json"),
+                },
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class CampaignDeliverySummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Return provider-independent campaign delivery results",
+    )
+    def get(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+
+        try:
+            gateway = load_campaign_gateway("delivery")
+            result = get_campaign_delivery_summary(
+                campaign,
+                gateway=gateway,
+            )
+        except CampaignGatewayUnavailable as exc:
+            return _gateway_unavailable_response(exc)
+        except CampaignIntegrationError as exc:
+            return _integration_conflict_response(exc)
+
+        return Response(
+            {
+                "success": True,
+                "data": result.model_dump(mode="json"),
             },
             status=status.HTTP_200_OK,
         )
