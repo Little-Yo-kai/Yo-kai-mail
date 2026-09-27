@@ -143,6 +143,7 @@ def promote_campaign_assets(
             "Campaign assets cannot change after delivery has started."
         )
 
+    base_design_id = campaign.active_design_id
     required_ids = _required_asset_ids(campaign)
 
     if not required_ids:
@@ -207,28 +208,52 @@ def promote_campaign_assets(
                 f"Promoted asset {asset_id} does not have a public HTTP(S) URL."
             )
 
-    updated_inventory = []
-    for item in campaign.asset_inventory:
-        if not isinstance(item, dict):
-            updated_inventory.append(item)
-            continue
-
-        asset_id = item.get("asset_id")
-        promoted = promoted_by_id.get(asset_id)
-        if promoted is None:
-            updated_inventory.append(item)
-            continue
-
-        replacement = dict(item)
-        replacement["url"] = promoted.public_url
-        replacement["source"] = "asset_library"
-        replacement["asset_record_id"] = str(
-            promoted.asset_record_id
+    with transaction.atomic():
+        locked = (
+            Campaign.objects.select_for_update()
+            .select_related("active_design")
+            .get(pk=campaign.pk)
         )
-        updated_inventory.append(replacement)
+        if locked.active_design_id != base_design_id:
+            raise CampaignIntegrationError(
+                "The active design changed while assets were being promoted. "
+                "Promote assets again for the latest design."
+            )
+        if locked.status in {
+            CampaignStatus.SCHEDULED,
+            CampaignStatus.SENDING,
+            CampaignStatus.SENT,
+        }:
+            raise CampaignIntegrationError(
+                "Campaign delivery started while assets were being promoted."
+            )
 
-    campaign.asset_inventory = updated_inventory
-    campaign.save(update_fields=["asset_inventory", "updated_at"])
+        updated_inventory = []
+        for item in locked.asset_inventory:
+            if not isinstance(item, dict):
+                updated_inventory.append(item)
+                continue
+
+            asset_id = item.get("asset_id")
+            promoted = promoted_by_id.get(asset_id)
+            if promoted is None:
+                updated_inventory.append(item)
+                continue
+
+            replacement = dict(item)
+            replacement["url"] = promoted.public_url
+            replacement["source"] = "asset_library"
+            replacement["asset_record_id"] = str(
+                promoted.asset_record_id
+            )
+            updated_inventory.append(replacement)
+
+        locked.asset_inventory = updated_inventory
+        locked.save(
+            update_fields=["asset_inventory", "updated_at"]
+        )
+        campaign.asset_inventory = updated_inventory
+
     return result
 
 
@@ -254,6 +279,8 @@ def revise_campaign_design(
             "Revision instruction cannot be empty."
         )
 
+    base_design_id = campaign.active_design_id
+
     try:
         raw_result = gateway.revise_campaign_design(
             campaign_id=campaign.id,
@@ -274,13 +301,27 @@ def revise_campaign_design(
         ) from exc
 
     with transaction.atomic():
+        locked = (
+            Campaign.objects.select_for_update()
+            .select_related("active_design")
+            .get(pk=campaign.pk)
+        )
+        if (
+            locked.active_design_id != base_design_id
+            or locked.status not in EDITABLE_CAMPAIGN_STATUSES
+        ):
+            raise CampaignIntegrationError(
+                "Campaign changed while the revision was being generated. "
+                "Revise the latest design instead."
+            )
+
         version = create_design_version(
-            campaign,
+            locked,
             email_design=result.email_design.model_dump(mode="json"),
             user=user,
             source=DesignVersionSource.REVISION,
         )
-        reset_campaign_after_design_change(campaign)
+        reset_campaign_after_design_change(locked)
 
     return version, result
 
@@ -319,15 +360,25 @@ def resolve_campaign_audience(
             "Audience snapshot contains no deliverable recipients."
         )
 
-    campaign.audience_selection = result.selection or selection
-    campaign.audience_snapshot_id = result.snapshot_id
-    campaign.save(
-        update_fields=[
-            "audience_selection",
-            "audience_snapshot_id",
-            "updated_at",
-        ]
-    )
+    with transaction.atomic():
+        locked = Campaign.objects.select_for_update().get(pk=campaign.pk)
+        if locked.status != CampaignStatus.READY:
+            raise CampaignIntegrationError(
+                "Campaign changed while the audience was being resolved."
+            )
+
+        locked.audience_selection = result.selection or selection
+        locked.audience_snapshot_id = result.snapshot_id
+        locked.save(
+            update_fields=[
+                "audience_selection",
+                "audience_snapshot_id",
+                "updated_at",
+            ]
+        )
+        campaign.audience_selection = locked.audience_selection
+        campaign.audience_snapshot_id = result.snapshot_id
+
     return result
 
 
@@ -339,15 +390,6 @@ def queue_campaign_delivery(
     scheduled_for=None,
     idempotency_key: str | None = None,
 ) -> DeliveryJobContract:
-    if campaign.status != CampaignStatus.READY:
-        raise CampaignIntegrationError(
-            "Campaign must be ready before delivery can be queued."
-        )
-    if campaign.audience_snapshot_id is None:
-        raise CampaignIntegrationError(
-            "Campaign must have an immutable audience snapshot before sending."
-        )
-
     if mode not in {
         CampaignSendMode.SEND_NOW,
         CampaignSendMode.SCHEDULED,
@@ -366,8 +408,43 @@ def queue_campaign_delivery(
     else:
         scheduled_for = None
 
-    _assert_delivery_assets_are_stable(campaign)
-    render_result = render_campaign_email(campaign)
+    with transaction.atomic():
+        campaign = (
+            Campaign.objects.select_for_update()
+            .select_related("active_design")
+            .get(pk=campaign.pk)
+        )
+
+        if campaign.status != CampaignStatus.READY:
+            raise CampaignIntegrationError(
+                "Campaign must be ready before delivery can be queued."
+            )
+        if campaign.audience_snapshot_id is None:
+            raise CampaignIntegrationError(
+                "Campaign must have an immutable audience snapshot before "
+                "sending."
+            )
+
+        _assert_delivery_assets_are_stable(campaign)
+
+        campaign.send_mode = mode
+        campaign.scheduled_for = scheduled_for
+        campaign.save(
+            update_fields=[
+                "send_mode",
+                "scheduled_for",
+                "updated_at",
+            ]
+        )
+
+        transition_campaign(
+            campaign,
+            next_status=(
+                CampaignStatus.SCHEDULED
+                if mode == CampaignSendMode.SCHEDULED
+                else CampaignStatus.SENDING
+            ),
+        )
 
     effective_idempotency_key = (
         idempotency_key
@@ -379,6 +456,7 @@ def queue_campaign_delivery(
     )
 
     try:
+        render_result = render_campaign_email(campaign)
         raw_result = gateway.create_campaign_delivery(
             campaign_id=campaign.id,
             audience_snapshot_id=campaign.audience_snapshot_id,
@@ -389,46 +467,34 @@ def queue_campaign_delivery(
             idempotency_key=effective_idempotency_key,
         )
         result = DeliveryJobContract.model_validate(raw_result)
-    except (CampaignIntegrationError, CampaignGatewayExecutionError):
+
+        if result.mode != mode:
+            raise CampaignIntegrationError(
+                "Delivery job mode does not match the campaign request."
+            )
+
+        allowed_job_statuses = (
+            {"queued", "sending"}
+            if mode == CampaignSendMode.SEND_NOW
+            else {"queued", "scheduled"}
+        )
+        if result.status not in allowed_job_statuses:
+            raise CampaignIntegrationError(
+                "Delivery job status is incompatible with the requested mode."
+            )
+    except Exception:
+        with transaction.atomic():
+            failed = Campaign.objects.select_for_update().get(pk=campaign.pk)
+            if failed.status in {
+                CampaignStatus.SCHEDULED,
+                CampaignStatus.SENDING,
+            }:
+                transition_campaign(
+                    failed,
+                    next_status=CampaignStatus.FAILED,
+                )
         raise
-    except Exception as exc:
-        raise CampaignIntegrationError(
-            "Delivery creation returned an invalid contract."
-        ) from exc
 
-    if result.mode != mode:
-        raise CampaignIntegrationError(
-            "Delivery job mode does not match the campaign request."
-        )
-
-    allowed_job_statuses = (
-        {"queued", "sending"}
-        if mode == CampaignSendMode.SEND_NOW
-        else {"queued", "scheduled"}
-    )
-    if result.status not in allowed_job_statuses:
-        raise CampaignIntegrationError(
-            "Delivery job status is incompatible with the requested mode."
-        )
-
-    campaign.send_mode = mode
-    campaign.scheduled_for = scheduled_for
-    campaign.save(
-        update_fields=[
-            "send_mode",
-            "scheduled_for",
-            "updated_at",
-        ]
-    )
-
-    transition_campaign(
-        campaign,
-        next_status=(
-            CampaignStatus.SCHEDULED
-            if mode == CampaignSendMode.SCHEDULED
-            else CampaignStatus.SENDING
-        ),
-    )
     return result
 
 
