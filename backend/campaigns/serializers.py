@@ -1,5 +1,13 @@
 from rest_framework import serializers
 
+from .models import (
+    Campaign,
+    CampaignDesignVersion,
+    CampaignReferenceMode,
+    CampaignSendMode,
+    CampaignStatus,
+)
+
 
 CAMPAIGN_TYPES = [
     "product_launch",
@@ -98,4 +106,171 @@ class CampaignBriefSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"product": "Product is required for a product launch campaign."}
             )
+        return attrs
+
+
+
+class CampaignDesignVersionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CampaignDesignVersion
+        fields = [
+            "id",
+            "version",
+            "source",
+            "email_design",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class CampaignCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Campaign
+        fields = [
+            "title",
+            "source_url",
+            "reference_mode",
+            "additional_instructions",
+        ]
+
+    def validate_reference_mode(self, value):
+        if value not in CampaignReferenceMode.values:
+            raise serializers.ValidationError("Invalid reference mode.")
+        return value
+
+
+class CampaignUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Campaign
+        fields = [
+            "title",
+            "source_url",
+            "reference_mode",
+            "additional_instructions",
+            "audience_selection",
+            "audience_snapshot_id",
+            "send_mode",
+            "scheduled_for",
+        ]
+        extra_kwargs = {
+            "source_url": {"required": False},
+            "reference_mode": {"required": False},
+        }
+
+    def validate_send_mode(self, value):
+        if value not in CampaignSendMode.values:
+            raise serializers.ValidationError("Invalid send mode.")
+        return value
+
+    def validate(self, attrs):
+        campaign = self.instance
+
+        if campaign and campaign.status != CampaignStatus.DRAFT:
+            locked_fields = {
+                "source_url",
+                "reference_mode",
+                "additional_instructions",
+            }
+            changed_locked_fields = locked_fields.intersection(attrs)
+            if changed_locked_fields:
+                raise serializers.ValidationError(
+                    {
+                        field: (
+                            "This generation input can only be changed while "
+                            "the campaign is in draft status."
+                        )
+                        for field in changed_locked_fields
+                    }
+                )
+
+        send_mode = attrs.get(
+            "send_mode",
+            getattr(campaign, "send_mode", CampaignSendMode.NONE),
+        )
+        scheduled_for = attrs.get(
+            "scheduled_for",
+            getattr(campaign, "scheduled_for", None),
+        )
+
+        if (
+            send_mode == CampaignSendMode.SCHEDULED
+            and scheduled_for is None
+        ):
+            raise serializers.ValidationError(
+                {
+                    "scheduled_for": (
+                        "scheduled_for is required when send_mode is scheduled."
+                    )
+                }
+            )
+
+        return attrs
+
+
+class CampaignSerializer(serializers.ModelSerializer):
+    active_design = CampaignDesignVersionSerializer(read_only=True)
+    owner_id = serializers.IntegerField(
+        source="owner_id",
+        read_only=True,
+    )
+
+    class Meta:
+        model = Campaign
+        fields = [
+            "id",
+            "owner_id",
+            "title",
+            "status",
+            "source_url",
+            "reference_mode",
+            "additional_instructions",
+            "campaign_brief",
+            "brand_profile",
+            "reference",
+            "content_plan",
+            "active_design",
+            "audience_selection",
+            "audience_snapshot_id",
+            "send_mode",
+            "scheduled_for",
+            "generated_at",
+            "reviewed_at",
+            "test_sent_at",
+            "ready_at",
+            "sending_at",
+            "sent_at",
+            "failed_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class CampaignTransitionSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=CampaignStatus.choices)
+
+
+class CampaignGenerateSerializer(serializers.Serializer):
+    reference_image = serializers.ImageField(
+        required=False,
+        allow_null=True,
+    )
+
+    def validate(self, attrs):
+        campaign = self.context["campaign"]
+        reference_image = attrs.get("reference_image")
+
+        if (
+            campaign.reference_mode == CampaignReferenceMode.UPLOADED
+            and reference_image is None
+        ):
+            raise serializers.ValidationError(
+                {
+                    "reference_image": (
+                        "A reference image is required when reference_mode "
+                        "is uploaded."
+                    )
+                }
+            )
+
         return attrs
