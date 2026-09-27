@@ -12,6 +12,7 @@ from rest_framework.test import APITestCase
 
 from .integration_services import (
     CampaignIntegrationError,
+    apply_campaign_delivery_state,
     get_campaign_delivery_summary,
     promote_campaign_assets,
     queue_campaign_delivery,
@@ -468,6 +469,54 @@ class CampaignIntegrationContractTests(TestCase):
         self.assertEqual(campaign.status, CampaignStatus.SCHEDULED)
         self.assertEqual(campaign.send_mode, CampaignSendMode.SCHEDULED)
         self.assertEqual(campaign.scheduled_for, scheduled_for)
+
+    def test_delivery_state_updates_move_scheduled_to_sent(self):
+        campaign = self.create_campaign(status=CampaignStatus.SCHEDULED)
+        campaign.audience_snapshot_id = uuid4()
+        campaign.send_mode = CampaignSendMode.SCHEDULED
+        campaign.scheduled_for = timezone.now() + timedelta(hours=1)
+        campaign.save(
+            update_fields=[
+                "audience_snapshot_id",
+                "send_mode",
+                "scheduled_for",
+                "updated_at",
+            ]
+        )
+
+        apply_campaign_delivery_state(
+            campaign,
+            update={
+                "job_id": "job-789",
+                "status": "sending",
+            },
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, CampaignStatus.SENDING)
+        self.assertIsNotNone(campaign.sending_at)
+
+        apply_campaign_delivery_state(
+            campaign,
+            update={
+                "job_id": "job-789",
+                "status": "sent",
+            },
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, CampaignStatus.SENT)
+        self.assertIsNotNone(campaign.sent_at)
+
+    def test_delivery_state_rejects_impossible_sent_transition(self):
+        campaign = self.create_campaign(status=CampaignStatus.READY)
+
+        with self.assertRaises(CampaignIntegrationError):
+            apply_campaign_delivery_state(
+                campaign,
+                update={
+                    "job_id": "job-invalid",
+                    "status": "sent",
+                },
+            )
 
     def test_delivery_summary_contract_is_provider_independent(self):
         campaign = self.create_campaign(status=CampaignStatus.SENDING)
