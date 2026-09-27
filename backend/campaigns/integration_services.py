@@ -212,6 +212,9 @@ def promote_campaign_assets(
         replacement = dict(item)
         replacement["url"] = promoted.public_url
         replacement["source"] = "asset_library"
+        replacement["asset_record_id"] = str(
+            promoted.asset_record_id
+        )
         updated_inventory.append(replacement)
 
     campaign.asset_inventory = updated_inventory
