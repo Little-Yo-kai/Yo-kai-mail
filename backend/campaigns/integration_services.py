@@ -134,6 +134,15 @@ def promote_campaign_assets(
     *,
     gateway: AssetPromotionGateway,
 ) -> AssetPromotionResult:
+    if campaign.status in {
+        CampaignStatus.SCHEDULED,
+        CampaignStatus.SENDING,
+        CampaignStatus.SENT,
+    }:
+        raise CampaignIntegrationError(
+            "Campaign assets cannot change after delivery has started."
+        )
+
     required_ids = _required_asset_ids(campaign)
 
     if not required_ids:
