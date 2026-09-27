@@ -16,6 +16,7 @@ from email_rendering.compiler import MJMLCompilerError
 from email_rendering.renderer import EmailRenderInputError
 
 from .builders import build_campaign_brief
+from .contracts import CampaignGatewayExecutionError
 from .gateways import CampaignGatewayUnavailable, load_campaign_gateway
 from .integration_services import (
     CampaignIntegrationError,
@@ -77,6 +78,23 @@ def _integration_conflict_response(exc):
             "error": str(exc),
         },
         status=status.HTTP_409_CONFLICT,
+    )
+
+
+def _gateway_execution_response(exc):
+    response_status = status.HTTP_502_BAD_GATEWAY
+    if exc.status_code == 429:
+        response_status = status.HTTP_429_TOO_MANY_REQUESTS
+    elif exc.retryable:
+        response_status = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    return Response(
+        {
+            "success": False,
+            "error": str(exc),
+            "retryable": exc.retryable,
+        },
+        status=response_status,
     )
 
 
@@ -506,6 +524,8 @@ class CampaignAssetPromotionView(APIView):
             )
         except CampaignGatewayUnavailable as exc:
             return _gateway_unavailable_response(exc)
+        except CampaignGatewayExecutionError as exc:
+            return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
             return _integration_conflict_response(exc)
 
@@ -546,6 +566,8 @@ class CampaignRevisionView(APIView):
             )
         except CampaignGatewayUnavailable as exc:
             return _gateway_unavailable_response(exc)
+        except CampaignGatewayExecutionError as exc:
+            return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
             return _integration_conflict_response(exc)
 
@@ -586,6 +608,8 @@ class CampaignAudienceResolveView(APIView):
             )
         except CampaignGatewayUnavailable as exc:
             return _gateway_unavailable_response(exc)
+        except CampaignGatewayExecutionError as exc:
+            return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
             return _integration_conflict_response(exc)
 
@@ -628,6 +652,8 @@ class CampaignSendView(APIView):
             )
         except CampaignGatewayUnavailable as exc:
             return _gateway_unavailable_response(exc)
+        except CampaignGatewayExecutionError as exc:
+            return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
             return _integration_conflict_response(exc)
         except EmailRenderInputError as exc:
@@ -684,6 +710,8 @@ class CampaignScheduleView(APIView):
             )
         except CampaignGatewayUnavailable as exc:
             return _gateway_unavailable_response(exc)
+        except CampaignGatewayExecutionError as exc:
+            return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
             return _integration_conflict_response(exc)
         except EmailRenderInputError as exc:
@@ -731,6 +759,8 @@ class CampaignDeliverySummaryView(APIView):
             )
         except CampaignGatewayUnavailable as exc:
             return _gateway_unavailable_response(exc)
+        except CampaignGatewayExecutionError as exc:
+            return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
             return _integration_conflict_response(exc)
 
