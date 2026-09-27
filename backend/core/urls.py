@@ -1,15 +1,39 @@
 from django.contrib import admin
-from django.urls import path, include
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from django.urls import include, path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    
+
     # Auth Endpoints (Login, Logout, Password Reset)
     path('api/auth/', include('dj_rest_auth.urls')),
-    
+
+    # Website intelligence
+    path('api/website/', include('website_intelligence.urls')),
+    path('api/brand/', include('brand_intelligence.urls')),
+    path('api/campaigns/', include('campaigns.urls')),
+    path('api/reference-design/', include('reference_design.urls')),
+    path('api/reference-library/', include('reference_library.urls')),
+    path('api/email-generation/', include('email_generation.urls')),
+    path('api/email-rendering/', include('email_rendering.urls')),
+    path('api/email-visual-qa/', include('email_visual_qa.urls')),
+    path('api/demo/', include('demo_flow.urls')),
+    path('api/email-delivery/', include('email_delivery.urls')),
+
     # API Schema & Documentation Endpoints
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/docs/swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-    path('api/docs/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    path(
+        'api/docs/swagger/',
+        SpectacularSwaggerView.as_view(url_name='schema'),
+        name='swagger-ui',
+    ),
+    path(
+        'api/docs/redoc/',
+        SpectacularRedocView.as_view(url_name='schema'),
+        name='redoc',
+    ),
 ]

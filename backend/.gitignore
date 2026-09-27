@@ -1,10 +1,24 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
 # Python-generated files
 __pycache__/
 *.py[oc]
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 
 # Virtual environments
 .venv
+
+# Local database
+db.sqlite3
+
+# Local Node/MJML runtime
+node_modules/
+
+# Temporary email asset cache
+.cache/

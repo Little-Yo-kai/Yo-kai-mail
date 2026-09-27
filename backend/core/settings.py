@@ -12,9 +12,6 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 SECRET_KEY = env('SECRET_KEY', default='your-fallback-development-secret-key')
 DEBUG = env('DEBUG')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
 ALLOWED_HOSTS = []
 
 
@@ -34,6 +31,19 @@ INSTALLED_APPS = [
     'corsheaders',
     'dj_rest_auth',
     'drf_spectacular',
+
+    # Local apps
+    'website_intelligence',
+    'brand_intelligence',
+    'campaigns',
+    'reference_design',
+    'reference_library',
+    'email_generation',
+    'email_rendering',
+    'email_visual_qa',
+    'email_assets',
+    'demo_flow',
+    'email_delivery',
 ]
 
 MIDDLEWARE = [
@@ -41,7 +51,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-   
+
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -65,8 +75,6 @@ TEMPLATES = [
         },
     },
 ]
-
-
 
 
 # Database
@@ -116,6 +124,10 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
@@ -129,6 +141,63 @@ CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[
     'http://127.0.0.1:3000',
 ])
 
+FIRECRAWL_API_KEY = env('FIRECRAWL_API_KEY', default='')
+GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
+GEMINI_MODEL = env('GEMINI_MODEL', default='gemini-3.8-flash')
+GEMINI_REFERENCE_MODEL = env(
+    'GEMINI_REFERENCE_MODEL',
+    default='gemini-3.1-flash-lite',
+)
+GEMINI_GENERATION_MODEL = env(
+    'GEMINI_GENERATION_MODEL',
+    default='gemini-3.8-flash',
+)
+GEMINI_CRITIC_MODEL = env(
+    'GEMINI_CRITIC_MODEL',
+    default='gemini-3.1-flash-lite',
+)
+GEMINI_FALLBACK_MODEL = env(
+    'GEMINI_FALLBACK_MODEL',
+    default='gemini-3.1-flash-lite',
+)
+
+MJML_NODE_BINARY = env('MJML_NODE_BINARY', default='node')
+MJML_COMPILE_TIMEOUT_SECONDS = env.int(
+    'MJML_COMPILE_TIMEOUT_SECONDS',
+    default=10,
+)
+
+RESEND_API_KEY = env('RESEND_API_KEY', default='')
+RESEND_FROM_EMAIL = env(
+    'RESEND_FROM_EMAIL',
+    default='Yo-kai Mail <onboarding@resend.dev>',
+)
+RESEND_TEST_SEND_ENABLED = env.bool(
+    'RESEND_TEST_SEND_ENABLED',
+    default=DEBUG,
+)
+
+EMAIL_ASSET_CACHE_DIR = env(
+    'EMAIL_ASSET_CACHE_DIR',
+    default=str(BASE_DIR / '.cache' / 'email_assets'),
+)
+EMAIL_ASSET_CACHE_TTL_SECONDS = env.int(
+    'EMAIL_ASSET_CACHE_TTL_SECONDS',
+    default=21600,
+)
+EMAIL_ASSET_MAX_IMAGE_BYTES = env.int(
+    'EMAIL_ASSET_MAX_IMAGE_BYTES',
+    default=8 * 1024 * 1024,
+)
+EMAIL_ASSET_MAX_INLINE_BYTES = env.int(
+    'EMAIL_ASSET_MAX_INLINE_BYTES',
+    default=20 * 1024 * 1024,
+)
+EMAIL_ASSET_MAX_INLINE_COUNT = env.int(
+    'EMAIL_ASSET_MAX_INLINE_COUNT',
+    default=10,
+)
+
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
@@ -139,8 +208,11 @@ MAILERS = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'My DRF API Project',
-    'DESCRIPTION': 'Comprehensive API documentation for my application.',
-    'VERSION': '1.0.0',
+    'TITLE': 'Yo-kai Mail API',
+    'DESCRIPTION': 'API documentation for Yo-kai Mail.',
+    'VERSION': '0.1.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    # File fields have different request/response representations.
+    # Splitting them lets Swagger render multipart FileField inputs correctly.
+    'COMPONENT_SPLIT_REQUEST': True,
 }
