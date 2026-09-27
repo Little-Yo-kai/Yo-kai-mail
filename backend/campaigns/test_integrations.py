@@ -573,7 +573,61 @@ class CampaignIntegrationContractTests(TestCase):
         final_render_mock,
     ):
         campaign = self.create_campaign(
-            status=CampaignStatus.GENERATED
+            status=CampaignStatus.GENERATED,
+            email_design=sample_email_design(
+                subject="Original subject",
+                asset_ids=["hero_1"],
+            ),
+            asset_inventory=[
+                {
+                    "asset_id": "hero_1",
+                    "kind": "hero",
+                    "url": "https://source.example/hero.jpg",
+                    "source": "request",
+                }
+            ],
+        )
+
+        revision_version, _ = revise_campaign_design(
+            campaign,
+            gateway=FakeRevisionGateway(
+                {
+                    "email_design": sample_email_design(
+                        subject="Revised subject",
+                        asset_ids=["hero_1"],
+                    ),
+                    "revision_notes": ["Refined campaign copy."],
+                }
+            ),
+            instruction="Refine the copy.",
+            user=self.user,
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(revision_version.source, "revision")
+        self.assertEqual(campaign.active_design.version, 2)
+
+        promote_campaign_assets(
+            campaign,
+            gateway=FakeAssetGateway(
+                {
+                    "assets": [
+                        {
+                            "asset_id": "hero_1",
+                            "asset_record_id": str(uuid4()),
+                            "kind": "hero",
+                            "public_url": (
+                                "https://assets.example/hero.jpg"
+                            ),
+                        }
+                    ],
+                    "unresolved_asset_ids": [],
+                }
+            ),
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(
+            campaign.asset_inventory[0]["source"],
+            "asset_library",
         )
 
         compile_mock.return_value = {
