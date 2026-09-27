@@ -582,7 +582,7 @@ class CampaignPersistenceApiTests(APITestCase):
                 created_by=self.owner,
             )
             type(campaign).objects.filter(pk=campaign.pk).update(
-                active_design=newer
+                active_design_id=newer.id
             )
             return {
                 "email_id": "email-old-design",
