@@ -297,7 +297,6 @@ def render_campaign_email(campaign: Campaign) -> dict:
     }
 
 
-@transaction.atomic
 def send_campaign_test(
     campaign: Campaign,
     *,
@@ -316,12 +315,6 @@ def send_campaign_test(
 
     render_result = render_campaign_email(campaign)
 
-    if campaign.status == CampaignStatus.GENERATED:
-        transition_campaign(
-            campaign,
-            next_status=CampaignStatus.REVIEWED,
-        )
-
     delivery = ResendEmailService().send_test_email(
         to=to,
         subject=campaign.active_design.email_design["subject"],
@@ -330,17 +323,39 @@ def send_campaign_test(
         idempotency_key=idempotency_key,
     )
 
-    if campaign.status == CampaignStatus.REVIEWED:
-        transition_campaign(
-            campaign,
-            next_status=CampaignStatus.TEST_SENT,
+    with transaction.atomic():
+        campaign = (
+            Campaign.objects.select_for_update()
+            .select_related("active_design")
+            .get(pk=campaign.pk)
         )
-    elif campaign.status == CampaignStatus.TEST_SENT:
-        campaign.test_sent_at = timezone.now()
-        campaign.save(update_fields=["test_sent_at", "updated_at"])
-    elif campaign.status == CampaignStatus.READY:
-        campaign.test_sent_at = timezone.now()
-        campaign.save(update_fields=["test_sent_at", "updated_at"])
+
+        if campaign.status == CampaignStatus.GENERATED:
+            transition_campaign(
+                campaign,
+                next_status=CampaignStatus.REVIEWED,
+            )
+            transition_campaign(
+                campaign,
+                next_status=CampaignStatus.TEST_SENT,
+            )
+        elif campaign.status == CampaignStatus.REVIEWED:
+            transition_campaign(
+                campaign,
+                next_status=CampaignStatus.TEST_SENT,
+            )
+        elif campaign.status in {
+            CampaignStatus.TEST_SENT,
+            CampaignStatus.READY,
+        }:
+            campaign.test_sent_at = timezone.now()
+            campaign.save(
+                update_fields=["test_sent_at", "updated_at"]
+            )
+        else:
+            raise CampaignWorkflowError(
+                "Campaign changed state while the test email was sending."
+            )
 
     return {
         "delivery": delivery,
@@ -349,3 +364,4 @@ def send_campaign_test(
             "rendered_sections": render_result["rendered_sections"],
         },
     }
+
