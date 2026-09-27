@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from email_generation.schemas import EmailDesign
+
 from .models import (
     Campaign,
     CampaignDesignVersion,
@@ -225,6 +227,8 @@ class CampaignSerializer(serializers.ModelSerializer):
             "brand_profile",
             "reference",
             "content_plan",
+            "fact_ledger",
+            "asset_inventory",
             "active_design",
             "audience_selection",
             "audience_snapshot_id",
@@ -271,3 +275,41 @@ class CampaignGenerateSerializer(serializers.Serializer):
             )
 
         return attrs
+
+
+
+class CampaignDesignSaveSerializer(serializers.Serializer):
+    email_design = serializers.JSONField()
+
+    def validate_email_design(self, value):
+        try:
+            design = EmailDesign.model_validate(value)
+        except Exception as exc:
+            raise serializers.ValidationError(
+                f"Invalid EmailDesign: {exc}"
+            ) from exc
+
+        return design.model_dump(mode="json")
+
+
+class CampaignTestSendSerializer(serializers.Serializer):
+    to = serializers.EmailField()
+    idempotency_key = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=256,
+    )
+
+
+class CampaignRenderResponseSerializer(serializers.Serializer):
+    html = serializers.CharField()
+    mjml = serializers.CharField()
+    compiler_errors = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+    )
+    resolved_theme = serializers.JSONField()
+    rendered_sections = serializers.IntegerField()
+    available_asset_ids = serializers.ListField(
+        child=serializers.CharField(),
+    )
