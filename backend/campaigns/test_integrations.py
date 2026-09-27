@@ -10,6 +10,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from .contracts import CampaignGatewayExecutionError
 from .integration_services import (
     CampaignIntegrationError,
     apply_campaign_delivery_state,
@@ -150,6 +151,25 @@ class FakeDeliveryGateway:
         return self.summary
 
 
+class ConfiguredAudienceGateway:
+    def resolve_campaign_audience(self, **kwargs):
+        return {
+            "snapshot_id": str(uuid4()),
+            "recipient_count": 12,
+            "excluded_count": 1,
+            "selection": kwargs["selection"],
+        }
+
+
+class RateLimitedAudienceGateway:
+    def resolve_campaign_audience(self, **kwargs):
+        raise CampaignGatewayExecutionError(
+            "Audience provider rate limited the request.",
+            retryable=True,
+            status_code=429,
+        )
+
+
 class CampaignIntegrationContractTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
@@ -245,6 +265,31 @@ class CampaignIntegrationContractTests(TestCase):
             campaign.asset_inventory[1]["url"],
             "https://source.example/detail.jpg",
         )
+
+    def test_asset_promotion_is_frozen_after_delivery_starts(self):
+        campaign = self.create_campaign(
+            status=CampaignStatus.SENDING,
+            email_design=sample_email_design(asset_ids=["hero_1"]),
+            asset_inventory=[
+                {
+                    "asset_id": "hero_1",
+                    "kind": "hero",
+                    "url": "https://assets.example/hero.jpg",
+                    "source": "asset_library",
+                }
+            ],
+        )
+
+        with self.assertRaises(CampaignIntegrationError):
+            promote_campaign_assets(
+                campaign,
+                gateway=FakeAssetGateway(
+                    {
+                        "assets": [],
+                        "unresolved_asset_ids": [],
+                    }
+                ),
+            )
 
     def test_asset_promotion_rejects_partial_required_result(self):
         campaign = self.create_campaign(
@@ -582,6 +627,54 @@ class CampaignIntegrationApiTests(APITestCase):
         campaign.active_design = version
         campaign.save(update_fields=["active_design", "updated_at"])
         return campaign
+
+    @override_settings(
+        CAMPAIGN_AUDIENCE_GATEWAY=(
+            "campaigns.test_integrations.ConfiguredAudienceGateway"
+        )
+    )
+    def test_configured_gateway_loads_through_public_route(self):
+        campaign = self.create_campaign(status_value="ready")
+
+        response = self.client.post(
+            reverse(
+                "campaign-audience-resolve",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"selection": {"list_ids": ["customers"]}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        campaign.refresh_from_db()
+        self.assertIsNotNone(campaign.audience_snapshot_id)
+        self.assertEqual(
+            campaign.audience_selection,
+            {"list_ids": ["customers"]},
+        )
+
+    @override_settings(
+        CAMPAIGN_AUDIENCE_GATEWAY=(
+            "campaigns.test_integrations.RateLimitedAudienceGateway"
+        )
+    )
+    def test_gateway_rate_limit_maps_to_429(self):
+        campaign = self.create_campaign(status_value="ready")
+
+        response = self.client.post(
+            reverse(
+                "campaign-audience-resolve",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"selection": {"list_ids": ["customers"]}},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+        self.assertTrue(response.data["retryable"])
 
     @override_settings(CAMPAIGN_ASSET_PROMOTION_GATEWAY="")
     def test_unconfigured_teammate_gateway_returns_503(self):
