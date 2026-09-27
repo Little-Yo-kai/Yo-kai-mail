@@ -1,0 +1,450 @@
+from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import patch
+from uuid import uuid4
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.utils import timezone
+
+from .integration_services import (
+    CampaignIntegrationError,
+    get_campaign_delivery_summary,
+    promote_campaign_assets,
+    queue_campaign_delivery,
+    resolve_campaign_audience,
+    revise_campaign_design,
+)
+from .models import (
+    Campaign,
+    CampaignDesignVersion,
+    CampaignSendMode,
+    CampaignStatus,
+)
+
+
+def sample_brand_profile():
+    return {
+        "schema_version": "1.0",
+        "identity": {
+            "name": "Example",
+            "description": "Example brand",
+            "industry": "Retail",
+        },
+        "visual": {
+            "color_scheme": "light",
+            "colors": {
+                "primary": "#111111",
+                "secondary": "#777777",
+                "accent": "#111111",
+                "background": "#FFFFFF",
+                "text_primary": "#111111",
+            },
+            "typography": {
+                "heading_family": "Arial",
+                "body_family": "Arial",
+            },
+            "style_keywords": ["minimal"],
+            "border_radius": None,
+        },
+        "communication": {
+            "tone": ["clear"],
+            "copy_characteristics": {
+                "sentence_length": "short",
+                "emoji_usage": "none",
+                "formality": "medium",
+            },
+        },
+        "assets": {
+            "primary_logo": None,
+            "hero_candidates": [],
+            "og_image": None,
+            "favicon": None,
+        },
+        "confidence": 1.0,
+    }
+
+
+def sample_email_design(*, subject="Campaign subject", asset_ids=None):
+    return {
+        "schema_version": "1.0",
+        "subject": subject,
+        "preheader": "Campaign preview",
+        "theme": {
+            "content_width": "standard",
+            "heading_font_role": "brand_heading",
+            "body_font_role": "brand_body",
+            "primary_color_role": "primary",
+            "background_color_role": "background",
+            "button_color_role": "primary",
+        },
+        "sections": [
+            {
+                "id": "hero",
+                "order": 1,
+                "type": "hero",
+                "layout": "centered",
+                "eyebrow": "EXAMPLE",
+                "headline": "A campaign",
+                "body": "Persisted campaign copy.",
+                "asset_ids": asset_ids or [],
+                "items": [],
+                "cta": None,
+                "style": {
+                    "alignment": "center",
+                    "spacing": "balanced",
+                    "background_role": "brand_background",
+                },
+            }
+        ],
+    }
+
+
+class FakeAssetGateway:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def promote_campaign_assets(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.result
+
+
+class FakeRevisionGateway:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def revise_campaign_design(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.result
+
+
+class FakeAudienceGateway:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def resolve_campaign_audience(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.result
+
+
+class FakeDeliveryGateway:
+    def __init__(self, *, job=None, summary=None):
+        self.job = job
+        self.summary = summary
+        self.create_calls = []
+        self.summary_calls = []
+
+    def create_campaign_delivery(self, **kwargs):
+        self.create_calls.append(kwargs)
+        return self.job
+
+    def get_campaign_delivery_summary(self, **kwargs):
+        self.summary_calls.append(kwargs)
+        return self.summary
+
+
+class CampaignIntegrationContractTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="owner",
+            email="owner@example.com",
+            password="test-pass-123",
+        )
+
+    def create_campaign(
+        self,
+        *,
+        status=CampaignStatus.GENERATED,
+        email_design=None,
+        asset_inventory=None,
+    ):
+        campaign = Campaign.objects.create(
+            owner=self.user,
+            title="Integrated campaign",
+            source_url="https://example.com",
+            status=status,
+            brand_profile=sample_brand_profile(),
+            campaign_brief={"schema_version": "1.0"},
+            reference={"source": "internal_library"},
+            content_plan={"schema_version": "1.0"},
+            fact_ledger={"verified_facts": ["Brand: Example"]},
+            asset_inventory=asset_inventory or [],
+        )
+        version = CampaignDesignVersion.objects.create(
+            campaign=campaign,
+            version=1,
+            source="generated",
+            email_design=email_design or sample_email_design(),
+            created_by=self.user,
+        )
+        campaign.active_design = version
+        campaign.save(update_fields=["active_design", "updated_at"])
+        return campaign
+
+    def test_asset_gateway_promotes_only_assets_used_by_active_design(self):
+        campaign = self.create_campaign(
+            email_design=sample_email_design(asset_ids=["hero_1"]),
+            asset_inventory=[
+                {
+                    "asset_id": "hero_1",
+                    "kind": "hero",
+                    "url": "https://source.example/hero.jpg",
+                    "source": "request",
+                },
+                {
+                    "asset_id": "unused",
+                    "kind": "detail",
+                    "url": "https://source.example/detail.jpg",
+                    "source": "request",
+                },
+            ],
+        )
+        gateway = FakeAssetGateway(
+            {
+                "assets": [
+                    {
+                        "asset_id": "hero_1",
+                        "asset_record_id": str(uuid4()),
+                        "kind": "hero",
+                        "public_url": "https://assets.example/hero.jpg",
+                    }
+                ],
+                "unresolved_asset_ids": [],
+            }
+        )
+
+        result = promote_campaign_assets(campaign, gateway=gateway)
+
+        campaign.refresh_from_db()
+        self.assertEqual(len(gateway.calls), 1)
+        self.assertEqual(
+            [item["asset_id"] for item in gateway.calls[0]["assets"]],
+            ["hero_1"],
+        )
+        self.assertEqual(result.assets[0].asset_id, "hero_1")
+        self.assertEqual(
+            campaign.asset_inventory[0]["url"],
+            "https://assets.example/hero.jpg",
+        )
+        self.assertEqual(
+            campaign.asset_inventory[0]["source"],
+            "asset_library",
+        )
+        self.assertEqual(
+            campaign.asset_inventory[1]["url"],
+            "https://source.example/detail.jpg",
+        )
+
+    def test_asset_promotion_rejects_partial_required_result(self):
+        campaign = self.create_campaign(
+            email_design=sample_email_design(asset_ids=["hero_1"]),
+            asset_inventory=[
+                {
+                    "asset_id": "hero_1",
+                    "kind": "hero",
+                    "url": "https://source.example/hero.jpg",
+                    "source": "request",
+                }
+            ],
+        )
+        gateway = FakeAssetGateway(
+            {
+                "assets": [],
+                "unresolved_asset_ids": ["hero_1"],
+            }
+        )
+
+        with self.assertRaises(CampaignIntegrationError):
+            promote_campaign_assets(campaign, gateway=gateway)
+
+    def test_revision_gateway_creates_revision_version_and_resets_state(self):
+        campaign = self.create_campaign(status=CampaignStatus.READY)
+        campaign.reviewed_at = timezone.now()
+        campaign.test_sent_at = timezone.now()
+        campaign.ready_at = timezone.now()
+        campaign.save(
+            update_fields=[
+                "reviewed_at",
+                "test_sent_at",
+                "ready_at",
+                "updated_at",
+            ]
+        )
+        gateway = FakeRevisionGateway(
+            {
+                "email_design": sample_email_design(
+                    subject="Revised subject"
+                ),
+                "revision_notes": ["Shortened the headline."],
+            }
+        )
+
+        version, result = revise_campaign_design(
+            campaign,
+            gateway=gateway,
+            instruction="Make it shorter.",
+            user=self.user,
+        )
+
+        campaign.refresh_from_db()
+        self.assertEqual(version.version, 2)
+        self.assertEqual(version.source, "revision")
+        self.assertEqual(
+            result.email_design.subject,
+            "Revised subject",
+        )
+        self.assertEqual(campaign.status, CampaignStatus.GENERATED)
+        self.assertIsNone(campaign.reviewed_at)
+        self.assertIsNone(campaign.test_sent_at)
+        self.assertIsNone(campaign.ready_at)
+
+    def test_audience_resolution_persists_immutable_snapshot_reference(self):
+        campaign = self.create_campaign(status=CampaignStatus.READY)
+        snapshot_id = uuid4()
+        gateway = FakeAudienceGateway(
+            {
+                "snapshot_id": str(snapshot_id),
+                "recipient_count": 125,
+                "excluded_count": 5,
+                "selection": {"list_ids": ["customers"]},
+            }
+        )
+
+        result = resolve_campaign_audience(
+            campaign,
+            gateway=gateway,
+            selection={"list_ids": ["customers"]},
+        )
+
+        campaign.refresh_from_db()
+        self.assertEqual(result.recipient_count, 125)
+        self.assertEqual(campaign.audience_snapshot_id, snapshot_id)
+        self.assertEqual(
+            campaign.audience_selection,
+            {"list_ids": ["customers"]},
+        )
+
+    def test_empty_audience_snapshot_is_rejected(self):
+        campaign = self.create_campaign(status=CampaignStatus.READY)
+        gateway = FakeAudienceGateway(
+            {
+                "snapshot_id": str(uuid4()),
+                "recipient_count": 0,
+                "excluded_count": 0,
+                "selection": {},
+            }
+        )
+
+        with self.assertRaises(CampaignIntegrationError):
+            resolve_campaign_audience(
+                campaign,
+                gateway=gateway,
+                selection={},
+            )
+
+    @patch("campaigns.integration_services.render_campaign_email")
+    def test_send_now_contract_moves_ready_campaign_to_sending(
+        self,
+        render_mock,
+    ):
+        campaign = self.create_campaign(status=CampaignStatus.READY)
+        campaign.audience_snapshot_id = uuid4()
+        campaign.save(
+            update_fields=["audience_snapshot_id", "updated_at"]
+        )
+        render_mock.return_value = {
+            "html": "<html>Final campaign</html>",
+        }
+        gateway = FakeDeliveryGateway(
+            job={
+                "job_id": "job-123",
+                "mode": "send_now",
+                "status": "queued",
+                "scheduled_for": None,
+            }
+        )
+
+        result = queue_campaign_delivery(
+            campaign,
+            gateway=gateway,
+            mode=CampaignSendMode.SEND_NOW,
+            idempotency_key="campaign-send-1",
+        )
+
+        campaign.refresh_from_db()
+        self.assertEqual(result.job_id, "job-123")
+        self.assertEqual(campaign.status, CampaignStatus.SENDING)
+        self.assertEqual(campaign.send_mode, CampaignSendMode.SEND_NOW)
+        self.assertIsNone(campaign.scheduled_for)
+        self.assertEqual(
+            gateway.create_calls[0]["audience_snapshot_id"],
+            campaign.audience_snapshot_id,
+        )
+
+    @patch("campaigns.integration_services.render_campaign_email")
+    def test_scheduled_contract_moves_ready_campaign_to_scheduled(
+        self,
+        render_mock,
+    ):
+        campaign = self.create_campaign(status=CampaignStatus.READY)
+        campaign.audience_snapshot_id = uuid4()
+        campaign.save(
+            update_fields=["audience_snapshot_id", "updated_at"]
+        )
+        scheduled_for = timezone.now() + timedelta(hours=2)
+        render_mock.return_value = {
+            "html": "<html>Final campaign</html>",
+        }
+        gateway = FakeDeliveryGateway(
+            job={
+                "job_id": "job-456",
+                "mode": "scheduled",
+                "status": "scheduled",
+                "scheduled_for": scheduled_for.isoformat(),
+            }
+        )
+
+        result = queue_campaign_delivery(
+            campaign,
+            gateway=gateway,
+            mode=CampaignSendMode.SCHEDULED,
+            scheduled_for=scheduled_for,
+        )
+
+        campaign.refresh_from_db()
+        self.assertEqual(result.job_id, "job-456")
+        self.assertEqual(campaign.status, CampaignStatus.SCHEDULED)
+        self.assertEqual(campaign.send_mode, CampaignSendMode.SCHEDULED)
+        self.assertEqual(campaign.scheduled_for, scheduled_for)
+
+    def test_delivery_summary_contract_is_provider_independent(self):
+        campaign = self.create_campaign(status=CampaignStatus.SENDING)
+        gateway = FakeDeliveryGateway(
+            summary={
+                "total": 100,
+                "queued": 0,
+                "sent": 100,
+                "delivered": 93,
+                "bounced": 4,
+                "complained": 1,
+                "failed": 2,
+                "last_event_at": timezone.now().isoformat(),
+            }
+        )
+
+        result = get_campaign_delivery_summary(
+            campaign,
+            gateway=gateway,
+        )
+
+        self.assertEqual(result.total, 100)
+        self.assertEqual(result.delivered, 93)
+        self.assertEqual(result.bounced, 4)
+        self.assertEqual(
+            gateway.summary_calls[0]["campaign_id"],
+            campaign.id,
+        )
