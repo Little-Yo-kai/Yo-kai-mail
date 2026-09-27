@@ -64,7 +64,6 @@ generated
 
 reviewed
   -> test_sent
-  -> ready
   -> generated
   -> failed
 
