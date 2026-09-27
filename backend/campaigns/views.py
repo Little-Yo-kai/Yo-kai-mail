@@ -528,6 +528,8 @@ class CampaignAssetPromotionView(APIView):
             return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
             return _integration_conflict_response(exc)
+        except CampaignWorkflowError as exc:
+            return _integration_conflict_response(exc)
 
         campaign.refresh_from_db()
 
@@ -570,6 +572,8 @@ class CampaignRevisionView(APIView):
             return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
             return _integration_conflict_response(exc)
+        except CampaignWorkflowError as exc:
+            return _integration_conflict_response(exc)
 
         campaign.refresh_from_db()
 
@@ -611,6 +615,8 @@ class CampaignAudienceResolveView(APIView):
         except CampaignGatewayExecutionError as exc:
             return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
+            return _integration_conflict_response(exc)
+        except CampaignWorkflowError as exc:
             return _integration_conflict_response(exc)
 
         campaign.refresh_from_db()
@@ -655,6 +661,8 @@ class CampaignSendView(APIView):
         except CampaignGatewayExecutionError as exc:
             return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
+            return _integration_conflict_response(exc)
+        except CampaignWorkflowError as exc:
             return _integration_conflict_response(exc)
         except EmailRenderInputError as exc:
             return Response(
@@ -714,6 +722,8 @@ class CampaignScheduleView(APIView):
             return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
             return _integration_conflict_response(exc)
+        except CampaignWorkflowError as exc:
+            return _integration_conflict_response(exc)
         except EmailRenderInputError as exc:
             return Response(
                 {
@@ -762,6 +772,8 @@ class CampaignDeliverySummaryView(APIView):
         except CampaignGatewayExecutionError as exc:
             return _gateway_execution_response(exc)
         except CampaignIntegrationError as exc:
+            return _integration_conflict_response(exc)
+        except CampaignWorkflowError as exc:
             return _integration_conflict_response(exc)
 
         return Response(
