@@ -9,6 +9,7 @@ from email_generation.schemas import EmailDesign
 
 from .contracts import (
     AssetPromotionGateway,
+    CampaignGatewayExecutionError,
     AssetPromotionResult,
     AudienceGateway,
     AudienceSnapshotContract,
@@ -160,7 +161,7 @@ def promote_campaign_assets(
             assets=source_assets,
         )
         result = AssetPromotionResult.model_validate(raw_result)
-    except CampaignIntegrationError:
+    except (CampaignIntegrationError, CampaignGatewayExecutionError):
         raise
     except Exception as exc:
         raise CampaignIntegrationError(
@@ -252,7 +253,7 @@ def revise_campaign_design(
             instruction=instruction,
         )
         result = DesignRevisionResult.model_validate(raw_result)
-    except CampaignIntegrationError:
+    except (CampaignIntegrationError, CampaignGatewayExecutionError):
         raise
     except Exception as exc:
         raise CampaignIntegrationError(
@@ -293,7 +294,7 @@ def resolve_campaign_audience(
             selection=selection,
         )
         result = AudienceSnapshotContract.model_validate(raw_result)
-    except CampaignIntegrationError:
+    except (CampaignIntegrationError, CampaignGatewayExecutionError):
         raise
     except Exception as exc:
         raise CampaignIntegrationError(
@@ -375,7 +376,7 @@ def queue_campaign_delivery(
             idempotency_key=effective_idempotency_key,
         )
         result = DeliveryJobContract.model_validate(raw_result)
-    except CampaignIntegrationError:
+    except (CampaignIntegrationError, CampaignGatewayExecutionError):
         raise
     except Exception as exc:
         raise CampaignIntegrationError(
@@ -418,6 +419,8 @@ def get_campaign_delivery_summary(
             campaign_id=campaign.id,
         )
         return DeliverySummaryContract.model_validate(raw_result)
+    except CampaignGatewayExecutionError:
+        raise
     except Exception as exc:
         raise CampaignIntegrationError(
             "Delivery summary returned an invalid contract."
