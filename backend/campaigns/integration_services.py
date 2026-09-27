@@ -41,7 +41,7 @@ class CampaignIntegrationError(ValueError):
 
 def _validate_http_url(value: str) -> bool:
     parsed = urlparse(value)
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    return parsed.scheme == "https" and bool(parsed.netloc)
 
 
 def _delivery_idempotency_key(
