@@ -43,6 +43,20 @@ def transition_campaign(
             f"to {next_status}."
         )
 
+    if (
+        next_status
+        in {
+            CampaignStatus.GENERATED,
+            CampaignStatus.REVIEWED,
+            CampaignStatus.TEST_SENT,
+            CampaignStatus.READY,
+        }
+        and campaign.active_design_id is None
+    ):
+        raise CampaignTransitionError(
+            f"Campaign cannot enter {next_status} without an active EmailDesign."
+        )
+
     campaign.status = next_status
     timestamp_field = _status_timestamp_field(next_status)
     update_fields = ["status", "updated_at"]
