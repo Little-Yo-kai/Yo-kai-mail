@@ -1,8 +1,86 @@
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from unittest.mock import patch
 from rest_framework import status
 from rest_framework.test import APITestCase
+
+
+def sample_persisted_brand_profile():
+    return {
+        "schema_version": "1.0",
+        "identity": {
+            "name": "Example",
+            "description": "Example brand",
+            "industry": "Retail",
+        },
+        "visual": {
+            "color_scheme": "light",
+            "colors": {
+                "primary": "#111111",
+                "secondary": "#777777",
+                "accent": "#111111",
+                "background": "#FFFFFF",
+                "text_primary": "#111111",
+            },
+            "typography": {
+                "heading_family": "Arial",
+                "body_family": "Arial",
+            },
+            "style_keywords": ["minimal"],
+            "border_radius": None,
+        },
+        "communication": {
+            "tone": ["clear"],
+            "copy_characteristics": {
+                "sentence_length": "short",
+                "emoji_usage": "none",
+                "formality": "medium",
+            },
+        },
+        "assets": {
+            "primary_logo": None,
+            "hero_candidates": [],
+            "og_image": None,
+            "favicon": None,
+        },
+        "confidence": 1.0,
+    }
+
+
+def sample_persisted_email_design(subject="Campaign subject"):
+    return {
+        "schema_version": "1.0",
+        "subject": subject,
+        "preheader": "Campaign preview",
+        "theme": {
+            "content_width": "standard",
+            "heading_font_role": "brand_heading",
+            "body_font_role": "brand_body",
+            "primary_color_role": "primary",
+            "background_color_role": "background",
+            "button_color_role": "primary",
+        },
+        "sections": [
+            {
+                "id": "hero",
+                "order": 1,
+                "type": "hero",
+                "layout": "centered",
+                "eyebrow": "EXAMPLE",
+                "headline": "A persisted campaign",
+                "body": "Rendered from campaign state.",
+                "asset_ids": [],
+                "items": [],
+                "cta": None,
+                "style": {
+                    "alignment": "center",
+                    "spacing": "balanced",
+                    "background_role": "brand_background",
+                },
+            }
+        ],
+    }
 
 
 class CampaignBriefViewTests(APITestCase):
@@ -330,3 +408,164 @@ class CampaignPersistenceApiTests(APITestCase):
             response.status_code,
             status.HTTP_403_FORBIDDEN,
         )
+
+
+    def _create_generated_campaign_with_design(self, *, status_value="generated"):
+        from .models import CampaignDesignVersion
+
+        campaign = self._create_campaign(
+            status=status_value,
+            brand_profile=sample_persisted_brand_profile(),
+            asset_inventory=[],
+            fact_ledger={"verified_facts": ["Brand: Example"]},
+        )
+        version = CampaignDesignVersion.objects.create(
+            campaign=campaign,
+            version=1,
+            source="generated",
+            email_design=sample_persisted_email_design(),
+            created_by=self.owner,
+        )
+        campaign.active_design = version
+        campaign.save(update_fields=["active_design", "updated_at"])
+        return campaign
+
+    def test_design_save_creates_new_version_and_invalidates_test_state(self):
+        from django.utils import timezone
+
+        self._authenticate()
+        campaign = self._create_generated_campaign_with_design(
+            status_value="test_sent"
+        )
+        campaign.reviewed_at = timezone.now()
+        campaign.test_sent_at = timezone.now()
+        campaign.ready_at = timezone.now()
+        campaign.save(
+            update_fields=[
+                "reviewed_at",
+                "test_sent_at",
+                "ready_at",
+                "updated_at",
+            ]
+        )
+
+        edited = sample_persisted_email_design(
+            subject="Edited campaign subject"
+        )
+        response = self.client.put(
+            reverse(
+                "campaign-design",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"email_design": edited},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, "generated")
+        self.assertEqual(campaign.design_versions.count(), 2)
+        self.assertEqual(campaign.active_design.version, 2)
+        self.assertEqual(campaign.active_design.source, "user_edit")
+        self.assertEqual(
+            campaign.active_design.email_design["subject"],
+            "Edited campaign subject",
+        )
+        self.assertIsNone(campaign.reviewed_at)
+        self.assertIsNone(campaign.test_sent_at)
+        self.assertIsNone(campaign.ready_at)
+
+    @patch("campaigns.services.compile_mjml_to_html")
+    def test_campaign_render_uses_persisted_context(self, compile_mock):
+        self._authenticate()
+        campaign = self._create_generated_campaign_with_design()
+        compile_mock.return_value = {
+            "html": "<html><body>Rendered</body></html>",
+            "compiler_errors": [],
+        }
+
+        response = self.client.get(
+            reverse(
+                "campaign-render",
+                kwargs={"campaign_id": campaign.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["data"]["html"],
+            "<html><body>Rendered</body></html>",
+        )
+        compiled_mjml = compile_mock.call_args.args[0]
+        self.assertIn("<mjml>", compiled_mjml)
+        self.assertIn("A persisted campaign", compiled_mjml)
+
+    @override_settings(
+        RESEND_TEST_SEND_ENABLED=True,
+        RESEND_API_KEY="test-key",
+        RESEND_FROM_EMAIL="Yo-kai Mail <test@example.com>",
+    )
+    @patch("campaigns.services.ResendEmailService.send_test_email")
+    @patch("campaigns.services.compile_mjml_to_html")
+    def test_generated_to_test_send_to_ready_campaign_flow(
+        self,
+        compile_mock,
+        send_mock,
+    ):
+        self._authenticate()
+        campaign = self._create_generated_campaign_with_design()
+
+        compile_mock.return_value = {
+            "html": "<html><body>Campaign email</body></html>",
+            "compiler_errors": [],
+        }
+        send_mock.return_value = {
+            "email_id": "email-test-123",
+            "provider": "resend",
+            "to": "owner@example.com",
+            "from": "Yo-kai Mail <test@example.com>",
+            "idempotency_key": "test-key",
+            "inline_assets": [],
+            "inline_asset_count": 0,
+            "inline_asset_bytes": 0,
+        }
+
+        send_response = self.client.post(
+            reverse(
+                "campaign-send-test",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"to": "owner@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(
+            send_response.status_code,
+            status.HTTP_200_OK,
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, "test_sent")
+        self.assertIsNotNone(campaign.reviewed_at)
+        self.assertIsNotNone(campaign.test_sent_at)
+        self.assertEqual(
+            send_response.data["data"]["delivery"]["email_id"],
+            "email-test-123",
+        )
+
+        ready_response = self.client.post(
+            reverse(
+                "campaign-transition",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"status": "ready"},
+            format="json",
+        )
+
+        self.assertEqual(
+            ready_response.status_code,
+            status.HTTP_200_OK,
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, "ready")
+        self.assertIsNotNone(campaign.ready_at)
