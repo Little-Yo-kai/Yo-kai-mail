@@ -146,10 +146,16 @@ def generate_campaign(
     user,
     reference_image=None,
 ) -> Campaign:
+    source_url = campaign.source_url
+    additional_instructions = campaign.additional_instructions
+    reference_mode = campaign.reference_mode
+    initial_status = campaign.status
+    initial_active_design_id = campaign.active_design_id
+
     result = generate_phase1_demo(
-        url=campaign.source_url,
+        url=source_url,
         reference_image=reference_image,
-        additional_instructions=campaign.additional_instructions,
+        additional_instructions=additional_instructions,
     )
 
     with transaction.atomic():
@@ -158,6 +164,18 @@ def generate_campaign(
             .select_related("active_design")
             .get(pk=campaign.pk)
         )
+
+        if (
+            campaign.source_url != source_url
+            or campaign.additional_instructions != additional_instructions
+            or campaign.reference_mode != reference_mode
+            or campaign.status != initial_status
+            or campaign.active_design_id != initial_active_design_id
+        ):
+            raise CampaignTransitionError(
+                "Campaign changed while generation was running. "
+                "Generate again from the latest campaign state."
+            )
 
         if (
             campaign.status != CampaignStatus.DRAFT
@@ -313,6 +331,7 @@ def send_campaign_test(
             "Campaign is not in a state that can send a test email."
         )
 
+    tested_design_id = campaign.active_design_id
     render_result = render_campaign_email(campaign)
 
     delivery = ResendEmailService().send_test_email(
@@ -329,6 +348,12 @@ def send_campaign_test(
             .select_related("active_design")
             .get(pk=campaign.pk)
         )
+
+        if campaign.active_design_id != tested_design_id:
+            raise CampaignWorkflowError(
+                "The active design changed while the test email was sending. "
+                "The new design still requires its own test send."
+            )
 
         if campaign.status == CampaignStatus.GENERATED:
             transition_campaign(
