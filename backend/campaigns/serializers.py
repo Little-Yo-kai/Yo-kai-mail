@@ -157,6 +157,25 @@ class CampaignUpdateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         campaign = self.instance
 
+        protected_fields = {
+            "status",
+            "active_design",
+            "audience_selection",
+            "audience_snapshot_id",
+            "send_mode",
+            "scheduled_for",
+        }
+        attempted_protected = protected_fields.intersection(
+            self.initial_data.keys()
+        )
+        if attempted_protected:
+            raise serializers.ValidationError(
+                {
+                    field: "This field is managed by campaign orchestration."
+                    for field in sorted(attempted_protected)
+                }
+            )
+
         if campaign and campaign.status != CampaignStatus.DRAFT:
             locked_fields = {
                 "source_url",
