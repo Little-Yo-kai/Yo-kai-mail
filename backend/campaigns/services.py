@@ -65,6 +65,33 @@ def transition_campaign(
             f"Campaign cannot enter {next_status} without an active EmailDesign."
         )
 
+    if (
+        next_status == CampaignStatus.READY
+        and campaign.test_sent_at is None
+    ):
+        raise CampaignTransitionError(
+            "Campaign cannot become ready before a successful test send."
+        )
+
+    if next_status in {
+        CampaignStatus.SCHEDULED,
+        CampaignStatus.SENDING,
+    }:
+        if campaign.audience_snapshot_id is None:
+            raise CampaignTransitionError(
+                "Campaign delivery requires an immutable audience snapshot."
+            )
+        if campaign.send_mode == "none":
+            raise CampaignTransitionError(
+                "Campaign delivery requires an explicit send mode."
+            )
+
+    if next_status == CampaignStatus.SCHEDULED:
+        if campaign.send_mode != "scheduled" or campaign.scheduled_for is None:
+            raise CampaignTransitionError(
+                "Scheduled campaigns require a scheduled send mode and time."
+            )
+
     campaign.status = next_status
     timestamp_field = _status_timestamp_field(next_status)
     update_fields = ["status", "updated_at"]
@@ -77,6 +104,7 @@ def transition_campaign(
     return campaign
 
 
+@transaction.atomic
 def create_design_version(
     campaign: Campaign,
     *,
@@ -84,27 +112,34 @@ def create_design_version(
     user,
     source: str = DesignVersionSource.GENERATED,
 ) -> CampaignDesignVersion:
+    locked_campaign = Campaign.objects.select_for_update().get(
+        pk=campaign.pk
+    )
     current_max = (
-        campaign.design_versions.aggregate(max_version=Max("version"))[
-            "max_version"
-        ]
+        locked_campaign.design_versions.aggregate(
+            max_version=Max("version")
+        )["max_version"]
         or 0
     )
 
     version = CampaignDesignVersion.objects.create(
-        campaign=campaign,
+        campaign=locked_campaign,
         version=current_max + 1,
         source=source,
         email_design=email_design,
         created_by=user,
     )
 
+    locked_campaign.active_design = version
+    locked_campaign.save(
+        update_fields=["active_design", "updated_at"]
+    )
+
     campaign.active_design = version
-    campaign.save(update_fields=["active_design", "updated_at"])
+    campaign.active_design_id = version.id
     return version
 
 
-@transaction.atomic
 def generate_campaign(
     campaign: Campaign,
     *,
@@ -117,46 +152,52 @@ def generate_campaign(
         additional_instructions=campaign.additional_instructions,
     )
 
-    campaign.campaign_brief = result.get("campaign_brief") or {}
-    campaign.brand_profile = result.get("brand_profile") or {}
-    campaign.reference = result.get("reference") or {}
-    campaign.content_plan = result.get("content_plan") or {}
-    campaign.fact_ledger = result.get("fact_ledger") or {}
-    campaign.asset_inventory = result.get("asset_inventory") or []
+    with transaction.atomic():
+        campaign = (
+            Campaign.objects.select_for_update()
+            .select_related("active_design")
+            .get(pk=campaign.pk)
+        )
 
-    campaign.save(
-        update_fields=[
-            "campaign_brief",
-            "brand_profile",
-            "reference",
-            "content_plan",
-            "fact_ledger",
-            "asset_inventory",
-            "updated_at",
-        ]
-    )
-
-    create_design_version(
-        campaign,
-        email_design=result["email_design"],
-        user=user,
-        source=DesignVersionSource.GENERATED,
-    )
-
-    if campaign.status != CampaignStatus.GENERATED:
-        if campaign.status == CampaignStatus.DRAFT:
-            transition_campaign(
-                campaign,
-                next_status=CampaignStatus.GENERATED,
-            )
-        elif campaign.can_transition_to(CampaignStatus.GENERATED):
-            transition_campaign(
-                campaign,
-                next_status=CampaignStatus.GENERATED,
-            )
-        else:
+        if (
+            campaign.status != CampaignStatus.DRAFT
+            and not campaign.can_transition_to(CampaignStatus.GENERATED)
+            and campaign.status != CampaignStatus.GENERATED
+        ):
             raise CampaignTransitionError(
                 "Campaign cannot be regenerated from its current state."
+            )
+
+        campaign.campaign_brief = result.get("campaign_brief") or {}
+        campaign.brand_profile = result.get("brand_profile") or {}
+        campaign.reference = result.get("reference") or {}
+        campaign.content_plan = result.get("content_plan") or {}
+        campaign.fact_ledger = result.get("fact_ledger") or {}
+        campaign.asset_inventory = result.get("asset_inventory") or []
+
+        campaign.save(
+            update_fields=[
+                "campaign_brief",
+                "brand_profile",
+                "reference",
+                "content_plan",
+                "fact_ledger",
+                "asset_inventory",
+                "updated_at",
+            ]
+        )
+
+        create_design_version(
+            campaign,
+            email_design=result["email_design"],
+            user=user,
+            source=DesignVersionSource.GENERATED,
+        )
+
+        if campaign.status != CampaignStatus.GENERATED:
+            transition_campaign(
+                campaign,
+                next_status=CampaignStatus.GENERATED,
             )
 
     return campaign
