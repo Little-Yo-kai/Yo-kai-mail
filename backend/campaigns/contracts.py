@@ -7,6 +7,19 @@ from pydantic import BaseModel, Field, model_validator
 from email_generation.schemas import AssetKind, EmailDesign
 
 
+class CampaignGatewayExecutionError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        status_code: int | None = None,
+    ):
+        super().__init__(message)
+        self.retryable = retryable
+        self.status_code = status_code
+
+
 class PromotedAssetRef(BaseModel):
     asset_id: str = Field(min_length=1, max_length=200)
     asset_record_id: UUID
