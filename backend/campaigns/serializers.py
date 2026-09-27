@@ -333,3 +333,47 @@ class CampaignScheduleRequestSerializer(
     CampaignDeliveryRequestSerializer
 ):
     scheduled_for = serializers.DateTimeField()
+
+
+
+class CampaignAssetPromotionItemSerializer(serializers.Serializer):
+    asset_id = serializers.CharField()
+    asset_record_id = serializers.UUIDField()
+    kind = serializers.CharField()
+    public_url = serializers.URLField()
+
+
+class CampaignAssetPromotionResultSerializer(serializers.Serializer):
+    assets = CampaignAssetPromotionItemSerializer(many=True)
+    unresolved_asset_ids = serializers.ListField(
+        child=serializers.CharField(),
+    )
+
+
+class CampaignAssetPromotionDataSerializer(serializers.Serializer):
+    campaign = CampaignSerializer()
+    promotion = CampaignAssetPromotionResultSerializer()
+
+
+class CampaignAssetPromotionResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = CampaignAssetPromotionDataSerializer()
+
+
+class CampaignDeliverySummaryDataSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    queued = serializers.IntegerField()
+    sent = serializers.IntegerField()
+    delivered = serializers.IntegerField()
+    bounced = serializers.IntegerField()
+    complained = serializers.IntegerField()
+    failed = serializers.IntegerField()
+    last_event_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+    )
+
+
+class CampaignDeliverySummaryResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = CampaignDeliverySummaryDataSerializer()
