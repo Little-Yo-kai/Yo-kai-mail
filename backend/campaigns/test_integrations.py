@@ -1,5 +1,4 @@
 from datetime import timedelta
-from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
