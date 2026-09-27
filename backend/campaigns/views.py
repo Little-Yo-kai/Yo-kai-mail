@@ -28,10 +28,12 @@ from .integration_services import (
 )
 from .models import Campaign, CampaignSendMode
 from .serializers import (
+    CampaignAssetPromotionResponseSerializer,
     CampaignAudienceResolveSerializer,
     CampaignBriefSerializer,
     CampaignCreateSerializer,
     CampaignDeliveryRequestSerializer,
+    CampaignDeliverySummaryResponseSerializer,
     CampaignDesignSaveSerializer,
     CampaignGenerateSerializer,
     CampaignRenderResponseSerializer,
@@ -508,9 +510,11 @@ class CampaignTestSendView(APIView):
 
 class CampaignAssetPromotionView(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = CampaignAssetPromotionResponseSerializer
 
     @extend_schema(
         request=None,
+        responses={200: CampaignAssetPromotionResponseSerializer},
         summary="Promote active campaign assets to stable public URLs",
     )
     def post(self, request, campaign_id):
@@ -754,8 +758,10 @@ class CampaignScheduleView(APIView):
 
 class CampaignDeliverySummaryView(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = CampaignDeliverySummaryResponseSerializer
 
     @extend_schema(
+        responses={200: CampaignDeliverySummaryResponseSerializer},
         summary="Return provider-independent campaign delivery results",
     )
     def get(self, request, campaign_id):
