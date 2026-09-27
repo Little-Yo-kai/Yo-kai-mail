@@ -26,6 +26,7 @@ from .models import (
     CampaignSendMode,
     CampaignStatus,
 )
+from .services import send_campaign_test, transition_campaign
 
 
 def sample_brand_profile():
@@ -562,6 +563,99 @@ class CampaignIntegrationContractTests(TestCase):
                     "status": "sent",
                 },
             )
+
+    @patch("campaigns.integration_services.render_campaign_email")
+    @patch("campaigns.services.ResendEmailService.send_test_email")
+    @patch("campaigns.services.compile_mjml_to_html")
+    def test_contract_level_full_campaign_flow_reaches_sent(
+        self,
+        compile_mock,
+        test_send_mock,
+        final_render_mock,
+    ):
+        campaign = self.create_campaign(
+            status=CampaignStatus.GENERATED
+        )
+
+        compile_mock.return_value = {
+            "html": "<html>Test email</html>",
+            "compiler_errors": [],
+        }
+        test_send_mock.return_value = {
+            "email_id": "test-email-1",
+            "provider": "resend",
+            "to": "owner@example.com",
+            "from": "Yo-kai Mail <test@example.com>",
+            "idempotency_key": "test-send",
+            "inline_assets": [],
+            "inline_asset_count": 0,
+            "inline_asset_bytes": 0,
+        }
+
+        send_campaign_test(
+            campaign,
+            to="owner@example.com",
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(
+            campaign.status,
+            CampaignStatus.TEST_SENT,
+        )
+
+        transition_campaign(
+            campaign,
+            next_status=CampaignStatus.READY,
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, CampaignStatus.READY)
+
+        resolve_campaign_audience(
+            campaign,
+            gateway=FakeAudienceGateway(
+                {
+                    "snapshot_id": str(uuid4()),
+                    "recipient_count": 20,
+                    "excluded_count": 2,
+                    "selection": {"list_ids": ["customers"]},
+                }
+            ),
+            selection={"list_ids": ["customers"]},
+        )
+        campaign.refresh_from_db()
+        self.assertIsNotNone(campaign.audience_snapshot_id)
+
+        final_render_mock.return_value = {
+            "html": "<html>Final email</html>",
+        }
+        delivery_gateway = FakeDeliveryGateway(
+            job={
+                "job_id": "delivery-job-1",
+                "mode": "send_now",
+                "status": "queued",
+                "scheduled_for": None,
+            }
+        )
+        queue_campaign_delivery(
+            campaign,
+            gateway=delivery_gateway,
+            mode=CampaignSendMode.SEND_NOW,
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(
+            campaign.status,
+            CampaignStatus.SENDING,
+        )
+
+        apply_campaign_delivery_state(
+            campaign,
+            update={
+                "job_id": "delivery-job-1",
+                "status": "sent",
+            },
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, CampaignStatus.SENT)
+        self.assertIsNotNone(campaign.sent_at)
 
     def test_delivery_summary_contract_is_provider_independent(self):
         campaign = self.create_campaign(status=CampaignStatus.SENDING)
