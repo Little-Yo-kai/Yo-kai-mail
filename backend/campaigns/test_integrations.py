@@ -182,6 +182,13 @@ class ConfiguredAudienceGateway:
         }
 
 
+class MalformedAudienceGateway:
+    def resolve_campaign_audience(self, **kwargs):
+        return {
+            "recipient_count": "not-an-integer",
+        }
+
+
 class RateLimitedAudienceGateway:
     def resolve_campaign_audience(self, **kwargs):
         raise CampaignGatewayExecutionError(
@@ -849,6 +856,28 @@ class CampaignIntegrationApiTests(APITestCase):
         self.assertEqual(
             campaign.audience_selection,
             {"list_ids": ["customers"]},
+        )
+
+    @override_settings(
+        CAMPAIGN_AUDIENCE_GATEWAY=(
+            "campaigns.test_integrations.MalformedAudienceGateway"
+        )
+    )
+    def test_malformed_gateway_contract_maps_to_502(self):
+        campaign = self.create_campaign(status_value="ready")
+
+        response = self.client.post(
+            reverse(
+                "campaign-audience-resolve",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"selection": {"list_ids": ["customers"]}},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_502_BAD_GATEWAY,
         )
 
     @override_settings(
