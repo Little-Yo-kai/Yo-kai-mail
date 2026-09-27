@@ -911,8 +911,13 @@ class CampaignIntegrationApiTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
         campaign.refresh_from_db()
-        self.assertEqual(campaign.title, "Safe title update")
+        self.assertEqual(campaign.title, "API campaign")
         self.assertIsNone(campaign.audience_snapshot_id)
         self.assertEqual(campaign.send_mode, "none")
+        self.assertIn("audience_snapshot_id", response.data)
+        self.assertIn("send_mode", response.data)
