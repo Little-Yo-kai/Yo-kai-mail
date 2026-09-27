@@ -4,8 +4,11 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APITestCase
 
 from .integration_services import (
     CampaignIntegrationError,
@@ -234,6 +237,9 @@ class CampaignIntegrationContractTests(TestCase):
             campaign.asset_inventory[0]["source"],
             "asset_library",
         )
+        self.assertTrue(
+            campaign.asset_inventory[0].get("asset_record_id")
+        )
         self.assertEqual(
             campaign.asset_inventory[1]["url"],
             "https://source.example/detail.jpg",
@@ -347,6 +353,44 @@ class CampaignIntegrationContractTests(TestCase):
             )
 
     @patch("campaigns.integration_services.render_campaign_email")
+    def test_final_delivery_rejects_unpromoted_required_assets(
+        self,
+        render_mock,
+    ):
+        campaign = self.create_campaign(
+            status=CampaignStatus.READY,
+            email_design=sample_email_design(asset_ids=["hero_1"]),
+            asset_inventory=[
+                {
+                    "asset_id": "hero_1",
+                    "kind": "hero",
+                    "url": "https://source.example/hero.jpg",
+                    "source": "request",
+                }
+            ],
+        )
+        campaign.audience_snapshot_id = uuid4()
+        campaign.save(
+            update_fields=["audience_snapshot_id", "updated_at"]
+        )
+
+        with self.assertRaises(CampaignIntegrationError):
+            queue_campaign_delivery(
+                campaign,
+                gateway=FakeDeliveryGateway(
+                    job={
+                        "job_id": "should-not-run",
+                        "mode": "send_now",
+                        "status": "queued",
+                        "scheduled_for": None,
+                    }
+                ),
+                mode=CampaignSendMode.SEND_NOW,
+            )
+
+        render_mock.assert_not_called()
+
+    @patch("campaigns.integration_services.render_campaign_email")
     def test_send_now_contract_moves_ready_campaign_to_sending(
         self,
         render_mock,
@@ -372,7 +416,6 @@ class CampaignIntegrationContractTests(TestCase):
             campaign,
             gateway=gateway,
             mode=CampaignSendMode.SEND_NOW,
-            idempotency_key="campaign-send-1",
         )
 
         campaign.refresh_from_db()
@@ -383,6 +426,11 @@ class CampaignIntegrationContractTests(TestCase):
         self.assertEqual(
             gateway.create_calls[0]["audience_snapshot_id"],
             campaign.audience_snapshot_id,
+        )
+        self.assertTrue(
+            gateway.create_calls[0]["idempotency_key"].startswith(
+                "campaign-"
+            )
         )
 
     @patch("campaigns.integration_services.render_campaign_email")
@@ -448,3 +496,134 @@ class CampaignIntegrationContractTests(TestCase):
             gateway.summary_calls[0]["campaign_id"],
             campaign.id,
         )
+
+
+
+class CampaignIntegrationApiTests(APITestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.owner = user_model.objects.create_user(
+            username="api-owner",
+            email="api-owner@example.com",
+            password="test-pass-123",
+        )
+        self.other = user_model.objects.create_user(
+            username="api-other",
+            email="api-other@example.com",
+            password="test-pass-123",
+        )
+        self.client.force_authenticate(user=self.owner)
+
+    def create_campaign(self, *, owner=None, status_value="generated"):
+        campaign = Campaign.objects.create(
+            owner=owner or self.owner,
+            title="API campaign",
+            source_url="https://example.com",
+            status=status_value,
+            brand_profile=sample_brand_profile(),
+            asset_inventory=[],
+        )
+        version = CampaignDesignVersion.objects.create(
+            campaign=campaign,
+            version=1,
+            source="generated",
+            email_design=sample_email_design(),
+            created_by=owner or self.owner,
+        )
+        campaign.active_design = version
+        campaign.save(update_fields=["active_design", "updated_at"])
+        return campaign
+
+    @override_settings(CAMPAIGN_ASSET_PROMOTION_GATEWAY="")
+    def test_unconfigured_teammate_gateway_returns_503(self):
+        campaign = self.create_campaign()
+
+        response = self.client.post(
+            reverse(
+                "campaign-assets-promote",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    def test_integration_route_is_owner_scoped(self):
+        campaign = self.create_campaign(owner=self.other)
+
+        response = self.client.post(
+            reverse(
+                "campaign-revision",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"instruction": "Shorten it."},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_public_transition_api_cannot_fake_system_delivery_state(self):
+        campaign = self.create_campaign()
+
+        response = self.client.post(
+            reverse(
+                "campaign-transition",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"status": "sending"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_ready_transition_requires_successful_test_send(self):
+        campaign = self.create_campaign(status_value="reviewed")
+
+        response = self.client.post(
+            reverse(
+                "campaign-transition",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"status": "ready"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, CampaignStatus.REVIEWED)
+
+    def test_patch_cannot_set_internal_audience_or_delivery_fields(self):
+        campaign = self.create_campaign()
+        fake_snapshot = uuid4()
+
+        response = self.client.patch(
+            reverse(
+                "campaign-detail",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {
+                "title": "Safe title update",
+                "audience_snapshot_id": str(fake_snapshot),
+                "send_mode": "send_now",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.title, "Safe title update")
+        self.assertIsNone(campaign.audience_snapshot_id)
+        self.assertEqual(campaign.send_mode, "none")
