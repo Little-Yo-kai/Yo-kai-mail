@@ -220,17 +220,17 @@ Friend 5 — Contacts/Delivery:
 
 ## Intentionally incomplete in this checkpoint
 
-This Sprint 0 skeleton does not yet implement:
+The campaign foundation intentionally does not own teammate subsystem
+implementations. Current remaining implementation dependencies are:
 
-- persistent AssetLibrary integration
-- editor design-save endpoint
-- campaign-level test-send endpoint
-- audience resolution
-- schedule/send job creation
-- delivery summaries
+- Friend 1's persistent AssetRecord/storage implementation
+- Friend 2's AI revision implementation
+- Friend 5's AudienceSnapshot/contact resolution implementation
+- Friend 5's DeliveryJob/DeliveryRecord/provider-webhook implementation
 - workspace/team ownership
 
-Those are separate contract-driven checkpoints.
+Editor design-save and campaign-level test-send are already implemented.
+The interfaces below define how the remaining teammate modules connect.
 
 
 ## Phase 2 workflow additions
@@ -368,3 +368,221 @@ ready
 
 Only the external/runtime edges are mocked; campaign persistence, renderer
 input assembly, state transitions and API boundaries are real.
+
+
+## Phase 2 integration contracts
+
+The campaign app owns orchestration. Teammate modules own their domain
+implementation.
+
+The stable Python boundary is defined in:
+
+`campaigns/contracts.py`
+
+The campaign-side orchestration is defined in:
+
+`campaigns/integration_services.py`
+
+No integration service imports a teammate's future Django model. Instead it
+accepts a gateway that satisfies the documented Protocol.
+
+### Friend 1 — AssetPromotionGateway
+
+Input:
+
+```text
+campaign_id
++ only AssetDescriptors referenced by active EmailDesign
+```
+
+Output:
+
+```text
+AssetPromotionResult
+  assets[]
+    asset_id
+    asset_record_id
+    kind
+    public_url
+  unresolved_asset_ids[]
+```
+
+Campaign requirements:
+
+- every asset referenced by the active EmailDesign must resolve
+- returned asset IDs must match required asset IDs exactly
+- asset kind may not change during promotion
+- final URL must be public HTTP(S)
+- promoted URLs are written back into Campaign.asset_inventory
+- promoted descriptors use source=`asset_library`
+
+The gateway implementation may use R2/S3/CDN or another storage provider.
+Campaign orchestration does not need to know which provider is used.
+
+### Friend 2 — DesignRevisionGateway
+
+Input:
+
+```text
+campaign_id
+BrandProfile
+CampaignBrief
+Reference
+ContentPlan
+FactLedger
+current EmailDesign
+revision instruction
+```
+
+Output:
+
+```text
+DesignRevisionResult
+  email_design
+  revision_notes[]
+```
+
+Campaign orchestration validates the returned EmailDesign, creates a new
+CampaignDesignVersion with source=`revision`, makes it active, and invalidates
+stale review/test-ready state.
+
+The AI subsystem must never mutate Campaign or CampaignDesignVersion directly.
+
+### Friend 5 — AudienceGateway
+
+Input:
+
+```text
+campaign_id
+owner_id
+audience selection object
+```
+
+Output:
+
+```text
+AudienceSnapshotContract
+  snapshot_id
+  recipient_count
+  excluded_count
+  normalized selection
+```
+
+The snapshot is immutable from the campaign's perspective. Campaign stores
+only the snapshot UUID and normalized selection; contact membership remains
+owned by the contacts/delivery subsystem.
+
+Current orchestration resolves an audience only after Campaign is `ready` and
+rejects an empty deliverable snapshot.
+
+### Friend 5 — DeliveryGateway
+
+Create-delivery input:
+
+```text
+campaign_id
+audience_snapshot_id
+subject
+final rendered HTML
+mode = send_now | scheduled
+scheduled_for
+idempotency_key
+```
+
+Output:
+
+```text
+DeliveryJobContract
+  job_id
+  mode
+  status
+  scheduled_for
+```
+
+Campaign state mapping:
+
+```text
+ready + send_now
+    -> DeliveryGateway
+    -> sending
+
+ready + scheduled
+    -> DeliveryGateway
+    -> scheduled
+```
+
+The delivery subsystem owns recipient expansion, batching, Resend calls,
+DeliveryRecord persistence and webhook processing.
+
+### Delivery summary
+
+The delivery subsystem exposes a provider-independent summary:
+
+```text
+total
+queued
+sent
+delivered
+bounced
+complained
+failed
+last_event_at
+```
+
+Campaign orchestration does not depend on Resend webhook payload shapes.
+
+### Why gateways instead of direct imports?
+
+This avoids coupling such as:
+
+```python
+from contacts.models import SomeModelFriend5HasNotFinishedYet
+```
+
+or:
+
+```python
+from assets.models import AssetRecord
+```
+
+inside campaign orchestration.
+
+Instead:
+
+```text
+teammate implementation
+        ↓
+implements gateway contract
+        ↓
+campaign integration service
+```
+
+This lets each subsystem evolve internally while keeping the campaign workflow
+stable.
+
+### Contract-level orchestration already implemented
+
+The campaign layer can now:
+
+- identify only assets actually referenced by active EmailDesign
+- promote those assets through an AssetPromotionGateway
+- persist stable delivery URLs
+- request an AI revision through a DesignRevisionGateway
+- create a revision design version without overwriting history
+- resolve and persist an immutable audience snapshot reference
+- create immediate or scheduled delivery through a DeliveryGateway
+- move campaign state to `sending` or `scheduled`
+- request a provider-independent campaign delivery summary
+
+These services are deliberately not exposed as final public API endpoints
+until the corresponding teammate gateway implementations exist. This prevents
+us from shipping API routes that can only return placeholder data.
+
+### Contract test boundary
+
+`campaigns/test_integrations.py` uses fake gateway objects only at teammate
+boundaries. Campaign models, EmailDesign validation, versioning, state
+transitions and persistence remain real.
+
+This is the expected pattern for future integration tests: fake external/domain
+edges, not the campaign orchestration itself.
