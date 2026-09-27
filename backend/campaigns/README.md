@@ -269,6 +269,8 @@ A successful save:
 - returns the campaign to `generated` if it had already been reviewed,
   test-sent or marked ready
 - clears stale review/test-ready timestamps
+- invalidates any previously resolved audience snapshot
+- clears stale send mode and scheduled time
 
 This is the endpoint Friend 4's editor/autosave layer should call. The editor
 must never store raw MJML or raw HTML as campaign state.
