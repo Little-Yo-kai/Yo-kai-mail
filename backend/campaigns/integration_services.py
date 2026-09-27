@@ -1,3 +1,5 @@
+import hashlib
+
 from urllib.parse import urlparse
 
 from django.db import transaction
@@ -38,6 +40,66 @@ class CampaignIntegrationError(ValueError):
 def _validate_http_url(value: str) -> bool:
     parsed = urlparse(value)
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _delivery_idempotency_key(
+    campaign: Campaign,
+    *,
+    mode: str,
+    scheduled_for,
+) -> str:
+    schedule_value = (
+        scheduled_for.isoformat()
+        if scheduled_for is not None
+        else "immediate"
+    )
+    material = "|".join(
+        [
+            str(campaign.id),
+            str(campaign.active_design_id),
+            str(campaign.audience_snapshot_id),
+            mode,
+            schedule_value,
+        ]
+    )
+    return "campaign-" + hashlib.sha256(
+        material.encode("utf-8")
+    ).hexdigest()
+
+
+def _assert_delivery_assets_are_stable(campaign: Campaign) -> None:
+    required_ids = _required_asset_ids(campaign)
+    if not required_ids:
+        return
+
+    inventory_by_id = {
+        item.get("asset_id"): item
+        for item in campaign.asset_inventory
+        if isinstance(item, dict) and item.get("asset_id")
+    }
+
+    missing = sorted(required_ids.difference(inventory_by_id))
+    if missing:
+        raise CampaignIntegrationError(
+            "Campaign is missing required delivery assets: "
+            + ", ".join(missing)
+        )
+
+    unstable = []
+    for asset_id in sorted(required_ids):
+        item = inventory_by_id[asset_id]
+        if (
+            item.get("source") != "asset_library"
+            or not _validate_http_url(item.get("url", ""))
+        ):
+            unstable.append(asset_id)
+
+    if unstable:
+        raise CampaignIntegrationError(
+            "Campaign assets must be promoted to stable public URLs "
+            "before delivery: "
+            + ", ".join(unstable)
+        )
 
 
 def _required_asset_ids(campaign: Campaign) -> set[str]:
@@ -290,7 +352,17 @@ def queue_campaign_delivery(
     else:
         scheduled_for = None
 
+    _assert_delivery_assets_are_stable(campaign)
     render_result = render_campaign_email(campaign)
+
+    effective_idempotency_key = (
+        idempotency_key
+        or _delivery_idempotency_key(
+            campaign,
+            mode=mode,
+            scheduled_for=scheduled_for,
+        )
+    )
 
     try:
         raw_result = gateway.create_campaign_delivery(
@@ -300,7 +372,7 @@ def queue_campaign_delivery(
             html=render_result["html"],
             mode=mode,
             scheduled_for=scheduled_for,
-            idempotency_key=idempotency_key,
+            idempotency_key=effective_idempotency_key,
         )
         result = DeliveryJobContract.model_validate(raw_result)
     except CampaignIntegrationError:
