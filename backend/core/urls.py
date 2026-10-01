@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.conf import settings
+from django.conf.urls.static import static
 from django.urls import include, path
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -15,6 +17,9 @@ urlpatterns = [
     # Website intelligence
     path('api/website/', include('website_intelligence.urls')),
 
+    # Asset pipeline
+    path('api/assets/', include('assets.urls')),
+
     # API Schema & Documentation Endpoints
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path(
@@ -28,3 +33,9 @@ urlpatterns = [
         name='redoc',
     ),
 ]
+
+if settings.DEBUG:
+    # Local/dev only - LocalStorageAdapter's URLs resolve through this.
+    # Production won't route large media traffic through Django itself
+    # (the S3/R2 adapter serves directly from the bucket/CDN instead).
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

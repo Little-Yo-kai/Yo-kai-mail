@@ -10,9 +10,9 @@ env = environ.Env(DEBUG=(bool, False))
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
 SECRET_KEY = env('SECRET_KEY', default='your-fallback-development-secret-key')
-DEBUG = env('DEBUG')
+DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
 
 # Application definition
@@ -34,6 +34,7 @@ INSTALLED_APPS = [
 
     # Local apps
     'website_intelligence',
+    'assets',
 ]
 
 MIDDLEWARE = [
@@ -113,6 +114,15 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+ 
+# Used to build absolute, email-safe asset URLs (recipients' mail clients
+# fetch these directly - a relative /media/... URL means nothing outside
+# a browser session on this host). Set this to your real deployed domain
+# in production; localhost is fine for local dev only.
+ASSET_PUBLIC_BASE_URL = env('ASSET_PUBLIC_BASE_URL', default='http://localhost:8000')
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
