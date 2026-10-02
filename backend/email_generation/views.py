@@ -10,11 +10,13 @@ from rest_framework.views import APIView
 from .serializers import (
     ContentPlanRequestSerializer,
     EmailDesignRequestSerializer,
+    EmailSectionRegenerationRequestSerializer,
 )
 from .services.composer import (
     EmailDesignGenerationError,
     GeminiEmailDesignComposer,
 )
+from .services.regeneration import GeminiSectionRegenerator
 from .services.gemini import (
     ContentPlanGenerationError,
     GeminiCampaignStrategist,
@@ -132,6 +134,37 @@ class EmailDesignView(APIView):
                 payload["error"] = "Gemini generation rate limit exceeded."
 
             return Response(payload, status=response_status)
+
+        return Response(
+            {"success": True, "data": result},
+            status=status.HTTP_200_OK,
+        )
+
+
+class EmailSectionRegenerationView(APIView):
+    serializer_class = EmailSectionRegenerationRequestSerializer
+
+    @extend_schema(
+        request=EmailSectionRegenerationRequestSerializer,
+        responses=OpenApiTypes.OBJECT,
+        summary="Regenerate one EmailDesign section",
+        description=(
+            "Regenerates only the requested section. Application-owned facts, "
+            "approved assets, CTA destination URLs, and unrelated sections "
+            "remain authoritative."
+        ),
+    )
+    def post(self, request):
+        serializer = EmailSectionRegenerationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            result = GeminiSectionRegenerator().regenerate(
+                **serializer.validated_data
+            )
+        except EmailDesignGenerationError as exc:
+            logger.exception("Email section regeneration failed")
+            return Response(exc.as_dict(), status=status.HTTP_502_BAD_GATEWAY)
 
         return Response(
             {"success": True, "data": result},
