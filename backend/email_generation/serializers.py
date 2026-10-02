@@ -56,3 +56,17 @@ class EmailDesignRequestSerializer(serializers.Serializer):
         default=list,
     )
     fact_ledger = serializers.DictField()
+
+
+class EmailSectionRegenerationRequestSerializer(serializers.Serializer):
+    current_design = serializers.DictField()
+    section_id = serializers.CharField(max_length=100)
+    brand_profile = serializers.DictField()
+    reference_design_spec = serializers.DictField()
+    content_plan = serializers.DictField()
+    asset_inventory = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+    )
+    fact_ledger = serializers.DictField()
