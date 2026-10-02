@@ -283,3 +283,35 @@ class SectionRegenerationTests(APITestCase):
                 fact_ledger=self._facts().model_dump(mode="json"),
             )
         self.assertEqual(ctx.exception.reason, "Section not found")
+
+
+    @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
+    def test_regeneration_api_contract_returns_validated_design(self):
+        from unittest.mock import patch
+        from django.urls import reverse
+
+        section = copy.deepcopy(sample_email_design()["sections"][0])
+        section["headline"] = "Regenerated hero"
+        with patch(
+            "email_generation.views.GeminiSectionRegenerator"
+        ) as regenerator:
+            regenerator.return_value.regenerate.return_value = {
+                "email_design": sample_email_design()
+            }
+            response = self.client.post(
+                reverse("email-design-regenerate-section"),
+                {
+                    "current_design": sample_email_design(),
+                    "section_id": "hero",
+                    "brand_profile": sample_brand_profile(),
+                    "reference_design_spec": sample_reference_spec(),
+                    "content_plan": sample_content_plan(),
+                    "asset_inventory": self._assets(),
+                    "fact_ledger": self._facts().model_dump(mode="json"),
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["success"])
+        self.assertIn("email_design", response.data["data"])
