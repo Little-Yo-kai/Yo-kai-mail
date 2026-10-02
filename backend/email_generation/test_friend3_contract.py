@@ -10,6 +10,7 @@ from rest_framework.test import APITestCase
 from .builders import build_asset_inventory, build_fact_ledger
 from .schemas import EmailDesign
 from .services.composer import EmailDesignGenerationError, GeminiEmailDesignComposer
+from .services.regeneration import GeminiSectionRegenerator
 from .services.validation import EmailDesignContractError, validate_email_design_contract
 from .tests import (
     sample_brand_profile,
@@ -199,3 +200,86 @@ class Friend3EmailDesignContractTests(APITestCase):
         design.pop("subject")
         with self.assertRaises(ValidationError):
             EmailDesign.model_validate(design)
+
+
+class SectionRegenerationTests(APITestCase):
+    def _assets(self):
+        return [
+            asset.model_dump(mode="json")
+            for asset in build_asset_inventory(sample_brand_profile())
+        ]
+
+    def _facts(self):
+        return build_fact_ledger(sample_brand_profile(), sample_campaign_brief())
+
+    @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
+    def test_only_selected_section_changes_and_approved_cta_url_is_preserved(self):
+        current = sample_email_design()
+        current["sections"].insert(
+            1,
+            {
+                "id": "intro",
+                "order": 2,
+                "type": "intro",
+                "layout": "centered",
+                "eyebrow": "INTRO",
+                "headline": "Original introduction",
+                "body": "Original approved campaign copy.",
+                "asset_ids": [],
+                "items": [],
+                "cta": None,
+                "style": {
+                    "alignment": "center",
+                    "spacing": "balanced",
+                    "background_role": "transparent",
+                },
+            },
+        )
+        current["sections"][2]["order"] = 3
+
+        regenerated = copy.deepcopy(current["sections"][1])
+        regenerated["headline"] = "Regenerated introduction"
+        regenerated["body"] = "New copy for this section only."
+
+        client = Mock()
+        client.interactions.create.return_value = SimpleNamespace(
+            output_text=json.dumps(regenerated)
+        )
+
+        result = GeminiSectionRegenerator(client=client).regenerate(
+            current_design=current,
+            section_id="intro",
+            brand_profile=sample_brand_profile(),
+            reference_design_spec=sample_reference_spec(),
+            content_plan=sample_content_plan(),
+            asset_inventory=self._assets(),
+            fact_ledger=self._facts().model_dump(mode="json"),
+        )
+        updated = result["email_design"]
+
+        self.assertEqual(updated["subject"], current["subject"])
+        self.assertEqual(updated["preheader"], current["preheader"])
+        self.assertEqual(updated["theme"], current["theme"])
+        self.assertEqual(updated["sections"][0], current["sections"][0])
+        self.assertEqual(updated["sections"][2], current["sections"][2])
+        self.assertEqual(updated["sections"][1]["id"], "intro")
+        self.assertEqual(updated["sections"][1]["headline"], "Regenerated introduction")
+        self.assertEqual(
+            updated["sections"][2]["cta"]["url"],
+            self._facts().authoritative_destination_url,
+        )
+
+    @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
+    def test_regeneration_rejects_unknown_section(self):
+        client = Mock()
+        with self.assertRaises(EmailDesignGenerationError) as ctx:
+            GeminiSectionRegenerator(client=client).regenerate(
+                current_design=sample_email_design(),
+                section_id="missing",
+                brand_profile=sample_brand_profile(),
+                reference_design_spec=sample_reference_spec(),
+                content_plan=sample_content_plan(),
+                asset_inventory=self._assets(),
+                fact_ledger=self._facts().model_dump(mode="json"),
+            )
+        self.assertEqual(ctx.exception.reason, "Section not found")
