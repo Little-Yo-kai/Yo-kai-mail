@@ -9,6 +9,7 @@ from brand_intelligence.schemas import BrandProfile
 from reference_design.schemas import ReferenceDesignSpec
 
 from ..builders import normalize_email_design, repair_email_design_payload
+from .validation import EmailDesignContractError, validate_email_design_contract
 from ..prompts import EMAIL_DESIGN_COMPOSER_PROMPT
 from ..schemas import AssetDescriptor, ContentPlan, EmailDesign, FactLedger
 from .gemini import (
@@ -17,9 +18,25 @@ from .gemini import (
 
 
 class EmailDesignGenerationError(RuntimeError):
-    def __init__(self, message: str, details: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        details: str | None = None,
+        *,
+        stage: str = "email_design_generation",
+        reason: str = "Generation failed",
+    ):
         super().__init__(message)
         self.details = details
+        self.stage = stage
+        self.reason = reason
+
+    def as_dict(self) -> dict:
+        return {
+            "success": False,
+            "stage": self.stage,
+            "reason": self.reason,
+        }
 
 
 class GeminiEmailDesignComposer:
@@ -216,6 +233,20 @@ class GeminiEmailDesignComposer:
             raise EmailDesignGenerationError(
                 "Gemini email design request failed.",
                 details=str(exc),
+                reason="Generation request failed",
+            ) from exc
+
+        try:
+            design = validate_email_design_contract(
+                design,
+                asset_inventory=assets,
+                fact_ledger=facts,
+            )
+        except EmailDesignContractError as exc:
+            raise EmailDesignGenerationError(
+                "Generated EmailDesign failed application contract validation.",
+                details=str(exc),
+                reason="Invalid structured output",
             ) from exc
 
         return {
