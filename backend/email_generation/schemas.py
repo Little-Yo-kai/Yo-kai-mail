@@ -237,17 +237,6 @@ class EmailTheme(BaseModel):
     button_color_role: Literal["primary", "secondary", "accent", "text_primary"]
 
 
-class EmailDesign(BaseModel):
-    schema_version: str = "1.0"
-    subject: str
-    preheader: str
-    theme: EmailTheme
-    sections: list[EmailSection] = Field(min_length=1)
-    alternative_subjects: list[str] = Field(default_factory=list, max_length=4)
-    content_variants: list["EmailContentVariant"] = Field(
-        default_factory=list,
-        max_length=4,
-    )
 
 
 class EmailContentVariant(BaseModel):
@@ -257,3 +246,13 @@ class EmailContentVariant(BaseModel):
     subject: str
     preheader: str
     sections: list[EmailSection] = Field(min_length=1)
+
+
+class EmailDesign(BaseModel):
+    schema_version: str = "1.0"
+    subject: str
+    preheader: str
+    theme: EmailTheme
+    sections: list[EmailSection] = Field(min_length=1)
+    alternative_subjects: list[str] = Field(default_factory=list, max_length=4)
+    content_variants: list[EmailContentVariant] = Field(default_factory=list, max_length=4)
