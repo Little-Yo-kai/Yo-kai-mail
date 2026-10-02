@@ -119,7 +119,7 @@ class EmailDesignView(APIView):
             )
         except EmailDesignGenerationError as exc:
             logger.exception("Email design generation failed")
-            payload = {"success": False, "error": str(exc)}
+            payload = exc.as_dict()
             if settings.DEBUG and exc.details:
                 payload["details"] = exc.details
 
