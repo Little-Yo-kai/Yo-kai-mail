@@ -243,3 +243,17 @@ class EmailDesign(BaseModel):
     preheader: str
     theme: EmailTheme
     sections: list[EmailSection] = Field(min_length=1)
+    alternative_subjects: list[str] = Field(default_factory=list, max_length=4)
+    content_variants: list["EmailContentVariant"] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+
+
+class EmailContentVariant(BaseModel):
+    """An alternate campaign content realization for experimentation."""
+
+    variant_id: str
+    subject: str
+    preheader: str
+    sections: list[EmailSection] = Field(min_length=1)
