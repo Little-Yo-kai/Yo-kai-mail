@@ -1,4 +1,5 @@
 import copy
+import copy
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -290,8 +291,6 @@ class SectionRegenerationTests(APITestCase):
         from unittest.mock import patch
         from django.urls import reverse
 
-        section = copy.deepcopy(sample_email_design()["sections"][0])
-        section["headline"] = "Regenerated hero"
         with patch(
             "email_generation.views.GeminiSectionRegenerator"
         ) as regenerator:
