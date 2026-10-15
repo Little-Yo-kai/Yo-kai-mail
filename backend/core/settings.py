@@ -208,11 +208,11 @@ CAMPAIGN_DESIGN_REVISION_GATEWAY = env(
 )
 CAMPAIGN_AUDIENCE_GATEWAY = env(
     'CAMPAIGN_AUDIENCE_GATEWAY',
-    default='',
+    default='email_delivery.campaign_gateway.ContactsAudienceGateway',
 )
 CAMPAIGN_DELIVERY_GATEWAY = env(
     'CAMPAIGN_DELIVERY_GATEWAY',
-    default='',
+    default='email_delivery.campaign_gateway.ResendCampaignDeliveryGateway',
 )
 
 EMAIL_ASSET_CACHE_DIR = env(
