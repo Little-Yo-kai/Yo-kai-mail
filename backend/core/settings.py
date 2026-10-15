@@ -34,6 +34,7 @@ INSTALLED_APPS = [
 
     # Local apps
     'website_intelligence',
+    'assets',
     'brand_intelligence',
     'campaigns',
     'reference_design',
@@ -123,6 +124,16 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Local asset storage is suitable for development and test environments.
+# Production email assets must use an externally reachable HTTPS CDN origin.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+ASSET_PUBLIC_BASE_URL = env(
+    'ASSET_PUBLIC_BASE_URL',
+    default='http://localhost:8000',
+)
+
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
