@@ -3,6 +3,7 @@ import shutil
 import tempfile
 from unittest.mock import Mock, patch
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from PIL import Image
 from rest_framework.test import APIClient
@@ -387,6 +388,11 @@ class AssetApiTests(TestCase):
 
     def setUp(self):
         self.client = APIClient()
+        self.user = get_user_model().objects.create_user(
+            username="asset-owner",
+            password="test-password",
+        )
+        self.client.force_authenticate(user=self.user)
         self.tmp_media_root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp_media_root, ignore_errors=True)
         self.override = override_settings(
@@ -443,6 +449,44 @@ class AssetApiTests(TestCase):
         # 5. Promoting again should now fail explicitly (already promoted)
         response = self.client.post(f"/api/assets/{asset_id}/promote/")
         self.assertEqual(response.status_code, 409)
+
+    @patch("assets.services.fetch.assert_safe_url")
+    @patch("assets.services.fetch.requests.get")
+    def test_assets_cannot_be_read_or_promoted_by_other_user(
+        self, mock_get, mock_ssrf
+    ):
+        mock_get.return_value = self._mock_png_response()
+        imported = self.client.post(
+            "/api/assets/import/",
+            {
+                "owner_reference": "campaign-1",
+                "original_url": "https://example.com/private.png",
+            },
+            format="json",
+        )
+        self.assertEqual(imported.status_code, 201)
+        asset_id = imported.json()["data"]["asset_id"]
+
+        other = get_user_model().objects.create_user(
+            username="asset-other",
+            password="test-password",
+        )
+        self.client.force_authenticate(user=other)
+        self.assertEqual(
+            self.client.get(f"/api/assets/{asset_id}/").status_code, 404
+        )
+        self.assertEqual(
+            self.client.post(f"/api/assets/{asset_id}/promote/").status_code,
+            404,
+        )
+        self.assertEqual(len(self.client.get("/api/assets/").json()["data"]), 0)
+
+    def test_asset_api_requires_authentication(self):
+        self.client.force_authenticate(user=None)
+        self.assertIn(
+            self.client.get("/api/assets/").status_code,
+            {401, 403},
+        )
 
     def test_promote_unknown_asset_returns_404(self):
         response = self.client.post(
