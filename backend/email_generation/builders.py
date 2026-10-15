@@ -235,6 +235,30 @@ def normalize_email_design(
         normalized_sections.append(section)
 
     design.sections = normalized_sections
+
+    # Variants share the same application-owned asset and CTA constraints.
+    for variant in getattr(design, "content_variants", []):
+        variant_sections = []
+        for index, section in enumerate(
+            sorted(variant.sections, key=lambda item: item.order),
+            start=1,
+        ):
+            section.order = index
+            section.asset_ids = [
+                asset_id
+                for asset_id in section.asset_ids
+                if asset_id in allowed_asset_ids
+            ]
+            if section.cta is not None:
+                section.cta.url = authoritative_url
+            for item in section.items:
+                if item.asset_id not in allowed_asset_ids:
+                    item.asset_id = None
+                if item.cta is not None:
+                    item.cta.url = authoritative_url
+            variant_sections.append(section)
+        variant.sections = variant_sections
+
     return design
 
 
