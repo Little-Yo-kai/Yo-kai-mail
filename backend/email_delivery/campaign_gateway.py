@@ -28,6 +28,20 @@ class ContactsAudienceGateway:
         from django.contrib.auth import get_user_model
 
         owner = get_user_model().objects.get(pk=owner_id)
+        if (
+            not isinstance(selection, dict)
+            or not selection.get("list_ids") and not selection.get("contact_ids")
+        ):
+            raise CampaignGatewayExecutionError(
+                "Choose at least one contact list or contact."
+            )
+        if not isinstance(selection.get("list_ids", []), list) or not isinstance(
+            selection.get("contact_ids", []), list
+        ):
+            raise CampaignGatewayExecutionError(
+                "Audience selection must contain lists of IDs."
+            )
+
         try:
             result = resolve_snapshot(
                 campaign_id=campaign_id,
@@ -70,6 +84,7 @@ class ResendCampaignDeliveryGateway:
                 retryable=True,
             )
 
+        new_job = False
         with transaction.atomic():
             campaign = Campaign.objects.select_for_update().get(pk=campaign_id)
             expected_status = (
@@ -148,8 +163,14 @@ class ResendCampaignDeliveryGateway:
                 )
                 new_job = True
 
-        if "new_job" in locals():
-            dispatch_campaign_send_job(job)
+        if new_job:
+            try:
+                dispatch_campaign_send_job(job)
+            except Exception as exc:
+                raise CampaignGatewayExecutionError(
+                    "The campaign delivery worker could not be queued.",
+                    retryable=True,
+                ) from exc
 
         return {
             "job_id": str(job.id),
