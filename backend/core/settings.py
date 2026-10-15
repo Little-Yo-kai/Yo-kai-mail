@@ -177,6 +177,25 @@ RESEND_TEST_SEND_ENABLED = env.bool(
     default=DEBUG,
 )
 
+# Production campaign sending is opt-in, even on local development machines.
+RESEND_CAMPAIGN_SEND_ENABLED = env.bool(
+    'RESEND_CAMPAIGN_SEND_ENABLED',
+    default=False,
+)
+RESEND_WEBHOOK_SECRET = env('RESEND_WEBHOOK_SECRET', default='')
+
+CELERY_BROKER_URL = env(
+    'CELERY_BROKER_URL',
+    default=env('REDIS_URL', default='redis://127.0.0.1:6379/0'),
+)
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TIMEZONE = TIME_ZONE
+
 # Campaign integration gateways. Teammate-owned implementations plug into
 # these import paths without creating direct app-to-app model imports.
 CAMPAIGN_ASSET_PROMOTION_GATEWAY = env(
