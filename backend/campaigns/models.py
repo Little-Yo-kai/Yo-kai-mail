@@ -41,7 +41,6 @@ ALLOWED_CAMPAIGN_TRANSITIONS = {
     },
     CampaignStatus.REVIEWED: {
         CampaignStatus.TEST_SENT,
-        CampaignStatus.READY,
         CampaignStatus.GENERATED,
         CampaignStatus.FAILED,
     },

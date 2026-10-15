@@ -1,0 +1,40 @@
+name: Backend validation
+
+on:
+  push:
+    branches:
+      - 'feat/phase2-integration-contracts'
+      - 'integration/**'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: uv sync
+      - name: Django system check
+        run: uv run python manage.py check
+      - name: Migration consistency
+        run: uv run python manage.py makemigrations --check --dry-run
+      - name: Campaign tests
+        run: uv run python manage.py test campaigns
+      - name: Full backend regression
+        run: uv run python manage.py test

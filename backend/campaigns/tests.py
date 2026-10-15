@@ -359,6 +359,54 @@ class CampaignPersistenceApiTests(APITestCase):
         self.assertEqual(campaign.active_design.version, 2)
 
     @patch("campaigns.services.generate_phase1_demo")
+    def test_generation_rejects_stale_result_after_campaign_changes(
+        self,
+        generate_mock,
+    ):
+        self._authenticate()
+        campaign = self._create_campaign()
+
+        def generation_side_effect(**kwargs):
+            from .models import Campaign
+
+            Campaign.objects.filter(pk=campaign.pk).update(
+                source_url="https://newer.example.com"
+            )
+            return {
+                "campaign_brief": {},
+                "brand_profile": {},
+                "reference": {},
+                "content_plan": {},
+                "email_design": {
+                    "schema_version": "1.0",
+                    "subject": "Stale generation",
+                    "preheader": "Preview",
+                    "theme": {},
+                    "sections": [],
+                },
+            }
+
+        generate_mock.side_effect = generation_side_effect
+
+        response = self.client.post(
+            reverse(
+                "campaign-generate",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {},
+            format="multipart",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, "draft")
+        self.assertIsNone(campaign.active_design_id)
+        self.assertEqual(campaign.design_versions.count(), 0)
+
+    @patch("campaigns.services.generate_phase1_demo")
     def test_generation_inputs_lock_after_campaign_is_generated(
         self,
         generate_mock,
@@ -500,6 +548,72 @@ class CampaignPersistenceApiTests(APITestCase):
         compiled_mjml = compile_mock.call_args.args[0]
         self.assertIn("<mjml>", compiled_mjml)
         self.assertIn("A persisted campaign", compiled_mjml)
+
+    @override_settings(
+        RESEND_TEST_SEND_ENABLED=True,
+        RESEND_API_KEY="test-key",
+        RESEND_FROM_EMAIL="Yo-kai Mail <test@example.com>",
+    )
+    @patch("campaigns.services.ResendEmailService.send_test_email")
+    @patch("campaigns.services.compile_mjml_to_html")
+    def test_test_send_does_not_approve_a_newer_design(
+        self,
+        compile_mock,
+        send_mock,
+    ):
+        from .models import CampaignDesignVersion
+
+        self._authenticate()
+        campaign = self._create_generated_campaign_with_design()
+
+        compile_mock.return_value = {
+            "html": "<html><body>Old design</body></html>",
+            "compiler_errors": [],
+        }
+
+        def send_side_effect(**kwargs):
+            newer = CampaignDesignVersion.objects.create(
+                campaign=campaign,
+                version=2,
+                source="user_edit",
+                email_design=sample_persisted_email_design(
+                    subject="Newer design"
+                ),
+                created_by=self.owner,
+            )
+            type(campaign).objects.filter(pk=campaign.pk).update(
+                active_design_id=newer.id
+            )
+            return {
+                "email_id": "email-old-design",
+                "provider": "resend",
+                "to": "owner@example.com",
+                "from": "Yo-kai Mail <test@example.com>",
+                "idempotency_key": "old-design-test",
+                "inline_assets": [],
+                "inline_asset_count": 0,
+                "inline_asset_bytes": 0,
+            }
+
+        send_mock.side_effect = send_side_effect
+
+        response = self.client.post(
+            reverse(
+                "campaign-send-test",
+                kwargs={"campaign_id": campaign.id},
+            ),
+            {"to": "owner@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.status, "generated")
+        self.assertEqual(campaign.active_design.version, 2)
+        self.assertIsNone(campaign.test_sent_at)
 
     @override_settings(
         RESEND_TEST_SEND_ENABLED=True,

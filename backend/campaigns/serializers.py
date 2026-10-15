@@ -6,7 +6,6 @@ from .models import (
     Campaign,
     CampaignDesignVersion,
     CampaignReferenceMode,
-    CampaignSendMode,
     CampaignStatus,
 )
 
@@ -149,23 +148,33 @@ class CampaignUpdateSerializer(serializers.ModelSerializer):
             "source_url",
             "reference_mode",
             "additional_instructions",
-            "audience_selection",
-            "audience_snapshot_id",
-            "send_mode",
-            "scheduled_for",
         ]
         extra_kwargs = {
             "source_url": {"required": False},
             "reference_mode": {"required": False},
         }
 
-    def validate_send_mode(self, value):
-        if value not in CampaignSendMode.values:
-            raise serializers.ValidationError("Invalid send mode.")
-        return value
-
     def validate(self, attrs):
         campaign = self.instance
+
+        protected_fields = {
+            "status",
+            "active_design",
+            "audience_selection",
+            "audience_snapshot_id",
+            "send_mode",
+            "scheduled_for",
+        }
+        attempted_protected = protected_fields.intersection(
+            self.initial_data.keys()
+        )
+        if attempted_protected:
+            raise serializers.ValidationError(
+                {
+                    field: "This field is managed by campaign orchestration."
+                    for field in sorted(attempted_protected)
+                }
+            )
 
         if campaign and campaign.status != CampaignStatus.DRAFT:
             locked_fields = {
@@ -184,27 +193,6 @@ class CampaignUpdateSerializer(serializers.ModelSerializer):
                         for field in changed_locked_fields
                     }
                 )
-
-        send_mode = attrs.get(
-            "send_mode",
-            getattr(campaign, "send_mode", CampaignSendMode.NONE),
-        )
-        scheduled_for = attrs.get(
-            "scheduled_for",
-            getattr(campaign, "scheduled_for", None),
-        )
-
-        if (
-            send_mode == CampaignSendMode.SCHEDULED
-            and scheduled_for is None
-        ):
-            raise serializers.ValidationError(
-                {
-                    "scheduled_for": (
-                        "scheduled_for is required when send_mode is scheduled."
-                    )
-                }
-            )
 
         return attrs
 
@@ -248,7 +236,12 @@ class CampaignSerializer(serializers.ModelSerializer):
 
 
 class CampaignTransitionSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=CampaignStatus.choices)
+    status = serializers.ChoiceField(
+        choices=[
+            CampaignStatus.REVIEWED,
+            CampaignStatus.READY,
+        ]
+    )
 
 
 class CampaignGenerateSerializer(serializers.Serializer):
@@ -313,3 +306,74 @@ class CampaignRenderResponseSerializer(serializers.Serializer):
     available_asset_ids = serializers.ListField(
         child=serializers.CharField(),
     )
+
+
+
+class CampaignRevisionSerializer(serializers.Serializer):
+    instruction = serializers.CharField(
+        min_length=1,
+        max_length=2000,
+        trim_whitespace=True,
+    )
+
+
+class CampaignAudienceResolveSerializer(serializers.Serializer):
+    selection = serializers.JSONField()
+
+
+class CampaignDeliveryRequestSerializer(serializers.Serializer):
+    idempotency_key = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=256,
+    )
+
+
+class CampaignScheduleRequestSerializer(
+    CampaignDeliveryRequestSerializer
+):
+    scheduled_for = serializers.DateTimeField()
+
+
+
+class CampaignAssetPromotionItemSerializer(serializers.Serializer):
+    asset_id = serializers.CharField()
+    asset_record_id = serializers.UUIDField()
+    kind = serializers.CharField()
+    public_url = serializers.URLField()
+
+
+class CampaignAssetPromotionResultSerializer(serializers.Serializer):
+    assets = CampaignAssetPromotionItemSerializer(many=True)
+    unresolved_asset_ids = serializers.ListField(
+        child=serializers.CharField(),
+    )
+
+
+class CampaignAssetPromotionDataSerializer(serializers.Serializer):
+    campaign = CampaignSerializer()
+    promotion = CampaignAssetPromotionResultSerializer()
+
+
+class CampaignAssetPromotionResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = CampaignAssetPromotionDataSerializer()
+
+
+class CampaignDeliverySummaryDataSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    queued = serializers.IntegerField()
+    sent = serializers.IntegerField()
+    delivered = serializers.IntegerField()
+    bounced = serializers.IntegerField()
+    complained = serializers.IntegerField()
+    failed = serializers.IntegerField()
+    last_event_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+    )
+
+
+class CampaignDeliverySummaryResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    data = CampaignDeliverySummaryDataSerializer()

@@ -1,12 +1,18 @@
 from django.urls import path
 
 from .views import (
+    CampaignAssetPromotionView,
+    CampaignAudienceResolveView,
     CampaignBriefView,
+    CampaignDeliverySummaryView,
     CampaignDesignView,
     CampaignDetailView,
     CampaignGenerateView,
     CampaignListCreateView,
     CampaignRenderView,
+    CampaignRevisionView,
+    CampaignScheduleView,
+    CampaignSendView,
     CampaignTestSendView,
     CampaignTransitionView,
 )
@@ -38,6 +44,36 @@ urlpatterns = [
         "<uuid:campaign_id>/send-test/",
         CampaignTestSendView.as_view(),
         name="campaign-send-test",
+    ),
+    path(
+        "<uuid:campaign_id>/assets/promote/",
+        CampaignAssetPromotionView.as_view(),
+        name="campaign-assets-promote",
+    ),
+    path(
+        "<uuid:campaign_id>/revision/",
+        CampaignRevisionView.as_view(),
+        name="campaign-revision",
+    ),
+    path(
+        "<uuid:campaign_id>/audience/resolve/",
+        CampaignAudienceResolveView.as_view(),
+        name="campaign-audience-resolve",
+    ),
+    path(
+        "<uuid:campaign_id>/send/",
+        CampaignSendView.as_view(),
+        name="campaign-send",
+    ),
+    path(
+        "<uuid:campaign_id>/schedule/",
+        CampaignScheduleView.as_view(),
+        name="campaign-schedule",
+    ),
+    path(
+        "<uuid:campaign_id>/delivery-summary/",
+        CampaignDeliverySummaryView.as_view(),
+        name="campaign-delivery-summary",
     ),
     path(
         "<uuid:campaign_id>/transition/",
