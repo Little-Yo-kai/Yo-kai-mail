@@ -1,5 +1,4 @@
 import copy
-import copy
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -8,7 +7,7 @@ from django.test import override_settings
 from pydantic import ValidationError
 from rest_framework.test import APITestCase
 
-from .builders import build_asset_inventory, build_fact_ledger
+from .builders import build_asset_inventory, build_fact_ledger, normalize_email_design
 from .schemas import EmailDesign
 from .services.composer import EmailDesignGenerationError, GeminiEmailDesignComposer
 from .services.regeneration import GeminiSectionRegenerator
@@ -17,9 +16,27 @@ from .tests import (
     sample_brand_profile,
     sample_campaign_brief,
     sample_content_plan,
-    sample_email_design,
+    sample_email_design as sample_untrusted_email_design,
     sample_reference_spec,
 )
+
+
+def sample_email_design():
+    """Start from a valid design rather than the deliberately corrupt fixture.
+
+    The legacy composer tests intentionally include duplicate IDs,
+    unapproved assets, and a hallucinated CTA to test recovery.
+    Contract tests need the recovered form before exercising mutations.
+    """
+    design = EmailDesign.model_validate(sample_untrusted_email_design())
+    return normalize_email_design(
+        design,
+        asset_inventory=build_asset_inventory(sample_brand_profile()),
+        fact_ledger=build_fact_ledger(
+            sample_brand_profile(),
+            sample_campaign_brief(),
+        ),
+    ).model_dump(mode="json")
 
 
 class Friend3EmailDesignContractTests(APITestCase):
