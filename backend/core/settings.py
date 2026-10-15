@@ -126,6 +126,11 @@ STATIC_URL = 'static/'
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
+    ],
 }
 
 SIMPLE_JWT = {
@@ -176,6 +181,23 @@ RESEND_TEST_SEND_ENABLED = env.bool(
     'RESEND_TEST_SEND_ENABLED',
     default=DEBUG,
 )
+RESEND_CAMPAIGN_SEND_ENABLED = env.bool(
+    'RESEND_CAMPAIGN_SEND_ENABLED',
+    default=DEBUG,
+)
+RESEND_WEBHOOK_SECRET = env('RESEND_WEBHOOK_SECRET', default='')
+
+CELERY_BROKER_URL = env(
+    'CELERY_BROKER_URL',
+    default=env('REDIS_URL', default='redis://127.0.0.1:6379/0'),
+)
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TIMEZONE = TIME_ZONE
 
 EMAIL_ASSET_CACHE_DIR = env(
     'EMAIL_ASSET_CACHE_DIR',

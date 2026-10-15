@@ -16,7 +16,7 @@ from email_rendering.compiler import MJMLCompilerError
 from email_rendering.renderer import EmailRenderInputError
 
 from .builders import build_campaign_brief
-from .models import Campaign
+from .models import Campaign, CampaignStatus
 from .serializers import (
     CampaignBriefSerializer,
     CampaignCreateSerializer,
@@ -27,6 +27,23 @@ from .serializers import (
     CampaignTestSendSerializer,
     CampaignTransitionSerializer,
     CampaignUpdateSerializer,
+)
+from email_delivery.models import (
+    DeliveryEvent,
+    DeliveryRecord,
+    DeliveryRecordStatus,
+)
+from email_delivery.serializers_campaign import (
+    ResolveAudienceSerializer,
+    ScheduleCampaignSerializer,
+)
+from email_delivery.services.campaigns import (
+    CampaignDeliveryError,
+    CampaignQueueError,
+    cancel_campaign_schedule,
+    create_campaign_send_job,
+    dispatch_campaign_send_job,
+    resolve_campaign_audience,
 )
 from .services import (
     CampaignTransitionError,
@@ -228,11 +245,37 @@ class CampaignTransitionView(APIView):
         campaign = _owned_campaign(request, campaign_id)
         serializer = CampaignTransitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        requested_status = serializer.validated_data["status"]
+        if requested_status not in {
+            CampaignStatus.REVIEWED,
+            CampaignStatus.READY,
+        }:
+            return Response(
+                {
+                    "success": False,
+                    "error": (
+                        "This status is managed by generation, test delivery, "
+                        "or the campaign delivery workflow."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if (
+            campaign.status == CampaignStatus.SCHEDULED
+            and requested_status == CampaignStatus.READY
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "error": "Cancel the scheduled delivery before returning to ready.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         try:
             campaign = transition_campaign(
                 campaign,
-                next_status=serializer.validated_data["status"],
+                next_status=requested_status,
             )
         except CampaignTransitionError as exc:
             return Response(
@@ -248,6 +291,291 @@ class CampaignTransitionView(APIView):
             {
                 "success": True,
                 "data": CampaignSerializer(campaign).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CampaignAudienceResolveView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ResolveAudienceSerializer
+
+    @extend_schema(
+        request=ResolveAudienceSerializer,
+        summary="Resolve and save a suppression-aware campaign audience",
+        description=(
+            "Accepts owned contact/list IDs, deduplicates recipients, excludes "
+            "inactive or unconsented contacts, and stores an immutable snapshot."
+        ),
+    )
+    def post(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+        serializer = ResolveAudienceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = resolve_campaign_audience(
+                campaign_id=campaign.id,
+                owner=request.user,
+                list_ids=serializer.validated_data["list_ids"],
+                contact_ids=serializer.validated_data["contact_ids"],
+            )
+        except CampaignDeliveryError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {"success": True, "data": result},
+            status=status.HTTP_200_OK,
+        )
+
+
+class CampaignSendView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(summary="Queue a ready campaign for immediate delivery")
+    def post(self, request, campaign_id):
+        if not settings.RESEND_CAMPAIGN_SEND_ENABLED:
+            return Response(
+                {"success": False, "error": "Campaign sending is disabled."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        _owned_campaign(request, campaign_id)
+        try:
+            job = create_campaign_send_job(
+                campaign_id=campaign_id,
+                owner=request.user,
+            )
+            dispatch_campaign_send_job(job)
+            job.refresh_from_db()
+        except CampaignDeliveryError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except CampaignWorkflowError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except CampaignQueueError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Campaign.DoesNotExist:
+            return Response(
+                {"success": False, "error": "Campaign not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "job_id": str(job.id),
+                    "status": job.status,
+                    "campaign_id": str(campaign_id),
+                    "recipient_count": job.deliveries.count(),
+                },
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class CampaignScheduleView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ScheduleCampaignSerializer
+
+    @extend_schema(
+        request=ScheduleCampaignSerializer,
+        summary="Schedule a ready campaign for delivery",
+    )
+    def post(self, request, campaign_id):
+        if not settings.RESEND_CAMPAIGN_SEND_ENABLED:
+            return Response(
+                {"success": False, "error": "Campaign sending is disabled."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        _owned_campaign(request, campaign_id)
+        serializer = ScheduleCampaignSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            job = create_campaign_send_job(
+                campaign_id=campaign_id,
+                owner=request.user,
+                scheduled_for=serializer.validated_data["scheduled_for"],
+            )
+            dispatch_campaign_send_job(job)
+            job.refresh_from_db()
+        except CampaignDeliveryError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except CampaignWorkflowError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except CampaignQueueError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Campaign.DoesNotExist:
+            return Response(
+                {"success": False, "error": "Campaign not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "job_id": str(job.id),
+                    "status": job.status,
+                    "scheduled_for": job.scheduled_for,
+                    "campaign_id": str(campaign_id),
+                    "recipient_count": job.deliveries.count(),
+                },
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class CampaignCancelScheduleView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(summary="Cancel a scheduled campaign before delivery starts")
+    def post(self, request, campaign_id):
+        _owned_campaign(request, campaign_id)
+        try:
+            job = cancel_campaign_schedule(
+                campaign_id=campaign_id,
+                owner=request.user,
+            )
+        except CampaignDeliveryError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "job_id": str(job.id),
+                    "status": job.status,
+                    "campaign_id": str(campaign_id),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CampaignDeliverySummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(summary="Get campaign delivery counts and job status")
+    def get(self, request, campaign_id):
+        campaign = _owned_campaign(request, campaign_id)
+        records = DeliveryRecord.objects.filter(campaign=campaign)
+        try:
+            limit = int(request.query_params.get("limit", "100"))
+            offset = int(request.query_params.get("offset", "0"))
+        except ValueError:
+            return Response(
+                {"success": False, "error": "limit and offset must be integers."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if limit < 1 or limit > 500 or offset < 0:
+            return Response(
+                {"success": False, "error": "Use a limit from 1 to 500 and a non-negative offset."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        recipient_count = records.count()
+        recipient_records = list(
+            records.order_by("created_at", "id")
+            .values(
+                "id",
+                "recipient_email",
+                "provider",
+                "provider_message_id",
+                "status",
+                "last_event_type",
+                "last_event_at",
+                "sent_at",
+                "failure_reason",
+            )[offset : offset + limit]
+        )
+        sent_states = {
+            DeliveryRecordStatus.SENT,
+            DeliveryRecordStatus.DELIVERY_DELAYED,
+            DeliveryRecordStatus.DELIVERED,
+            DeliveryRecordStatus.BOUNCED,
+            DeliveryRecordStatus.COMPLAINED,
+            DeliveryRecordStatus.OPENED,
+            DeliveryRecordStatus.CLICKED,
+        }
+        event_counts = {}
+        for label, event_type in {
+            "delivered": "email.delivered",
+            "bounced": "email.bounced",
+            "failed": "email.failed",
+            "complained": "email.complained",
+            "opened": "email.opened",
+            "clicked": "email.clicked",
+        }.items():
+            event_counts[label] = (
+                DeliveryEvent.objects.filter(
+                    delivery__campaign=campaign,
+                    event_type=event_type,
+                )
+                .values("delivery_id")
+                .distinct()
+                .count()
+            )
+        job = campaign.delivery_jobs.order_by("-created_at").first()
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "campaign_id": str(campaign.id),
+                    "campaign_status": campaign.status,
+                    "job": (
+                        {
+                            "id": str(job.id),
+                            "status": job.status,
+                            "scheduled_for": job.scheduled_for,
+                            "started_at": job.started_at,
+                            "completed_at": job.completed_at,
+                            "error_summary": job.error_summary,
+                        }
+                        if job
+                        else None
+                    ),
+                    "counts": {
+                        "queued": records.filter(
+                            status=DeliveryRecordStatus.QUEUED
+                        ).count(),
+                        "sent": records.filter(status__in=sent_states).count(),
+                        "delivered": event_counts["delivered"],
+                        "bounced": event_counts["bounced"],
+                        "failed": records.filter(
+                            status=DeliveryRecordStatus.FAILED
+                        ).count(),
+                        "complained": event_counts["complained"],
+                        "opened": event_counts["opened"],
+                        "clicked": event_counts["clicked"],
+                        "suppressed": records.filter(
+                            status=DeliveryRecordStatus.SUPPRESSED
+                        ).count(),
+                    },
+                    "recipients": {
+                        "total": recipient_count,
+                        "limit": limit,
+                        "offset": offset,
+                        "items": recipient_records,
+                    },
+                },
             },
             status=status.HTTP_200_OK,
         )

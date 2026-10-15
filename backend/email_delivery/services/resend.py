@@ -215,6 +215,23 @@ class ResendEmailService:
             ),
         }
 
+    def send_campaign_email(
+        self,
+        *,
+        to: str,
+        subject: str,
+        html: str,
+        idempotency_key: str,
+    ) -> dict:
+        """Send one recipient from a persisted campaign audience snapshot."""
+        return self.send_test_email(
+            to=to,
+            subject=subject,
+            html=html,
+            cached_assets=[],
+            idempotency_key=idempotency_key,
+        )
+
     def get_email_status(self, *, email_id: str) -> dict:
         resend.api_key = settings.RESEND_API_KEY
 

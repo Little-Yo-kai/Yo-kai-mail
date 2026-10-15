@@ -2,11 +2,16 @@ from django.urls import path
 
 from .views import (
     CampaignBriefView,
+    CampaignCancelScheduleView,
     CampaignDesignView,
+    CampaignAudienceResolveView,
     CampaignDetailView,
+    CampaignDeliverySummaryView,
     CampaignGenerateView,
     CampaignListCreateView,
     CampaignRenderView,
+    CampaignScheduleView,
+    CampaignSendView,
     CampaignTestSendView,
     CampaignTransitionView,
 )
@@ -38,6 +43,31 @@ urlpatterns = [
         "<uuid:campaign_id>/send-test/",
         CampaignTestSendView.as_view(),
         name="campaign-send-test",
+    ),
+    path(
+        "<uuid:campaign_id>/audience/resolve/",
+        CampaignAudienceResolveView.as_view(),
+        name="campaign-audience-resolve",
+    ),
+    path(
+        "<uuid:campaign_id>/send/",
+        CampaignSendView.as_view(),
+        name="campaign-send",
+    ),
+    path(
+        "<uuid:campaign_id>/schedule/",
+        CampaignScheduleView.as_view(),
+        name="campaign-schedule",
+    ),
+    path(
+        "<uuid:campaign_id>/cancel-schedule/",
+        CampaignCancelScheduleView.as_view(),
+        name="campaign-cancel-schedule",
+    ),
+    path(
+        "<uuid:campaign_id>/delivery-summary/",
+        CampaignDeliverySummaryView.as_view(),
+        name="campaign-delivery-summary",
     ),
     path(
         "<uuid:campaign_id>/transition/",

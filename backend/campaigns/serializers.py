@@ -6,7 +6,6 @@ from .models import (
     Campaign,
     CampaignDesignVersion,
     CampaignReferenceMode,
-    CampaignSendMode,
     CampaignStatus,
 )
 
@@ -149,20 +148,11 @@ class CampaignUpdateSerializer(serializers.ModelSerializer):
             "source_url",
             "reference_mode",
             "additional_instructions",
-            "audience_selection",
-            "audience_snapshot_id",
-            "send_mode",
-            "scheduled_for",
         ]
         extra_kwargs = {
             "source_url": {"required": False},
             "reference_mode": {"required": False},
         }
-
-    def validate_send_mode(self, value):
-        if value not in CampaignSendMode.values:
-            raise serializers.ValidationError("Invalid send mode.")
-        return value
 
     def validate(self, attrs):
         campaign = self.instance
@@ -184,27 +174,6 @@ class CampaignUpdateSerializer(serializers.ModelSerializer):
                         for field in changed_locked_fields
                     }
                 )
-
-        send_mode = attrs.get(
-            "send_mode",
-            getattr(campaign, "send_mode", CampaignSendMode.NONE),
-        )
-        scheduled_for = attrs.get(
-            "scheduled_for",
-            getattr(campaign, "scheduled_for", None),
-        )
-
-        if (
-            send_mode == CampaignSendMode.SCHEDULED
-            and scheduled_for is None
-        ):
-            raise serializers.ValidationError(
-                {
-                    "scheduled_for": (
-                        "scheduled_for is required when send_mode is scheduled."
-                    )
-                }
-            )
 
         return attrs
 

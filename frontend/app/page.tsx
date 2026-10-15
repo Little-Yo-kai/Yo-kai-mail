@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
 
 type DemoResponse = {
   success: boolean;
@@ -298,9 +299,14 @@ export default function Home() {
             <span>Phase 1 demo</span>
           </div>
         </div>
-        <div className="status-pill">
-          <span className="status-dot" />
-          Generation engine online
+        <div className="topbar-actions">
+          <Link className="workspace-link" href="/contacts">
+            Contacts & delivery
+          </Link>
+          <div className="status-pill">
+            <span className="status-dot" />
+            Generation engine online
+          </div>
         </div>
       </header>
 

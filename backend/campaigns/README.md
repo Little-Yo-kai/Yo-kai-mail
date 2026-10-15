@@ -26,10 +26,9 @@ Core fields:
   - `reference`
   - `content_plan`
 - `active_design` — current CampaignDesignVersion
-- `audience_selection` — temporary boundary for Friend 5's audience work
-- `audience_snapshot_id` — future immutable resolved audience reference
-- `send_mode`
-- `scheduled_for`
+- `audience_selection` — selected owner-scoped contact/list IDs
+- `audience_snapshot_id` — immutable resolved audience used by delivery
+- `send_mode` and `scheduled_for` — set by send/schedule workflow endpoints
 - lifecycle timestamps
 
 ### CampaignDesignVersion
@@ -218,17 +217,15 @@ Friend 5 — Contacts/Delivery:
 - replace the temporary audience placeholders with AudienceSnapshot references
 - delivery jobs and provider events should reference `campaign_id`
 
-## Intentionally incomplete in this checkpoint
+## Remaining integration work
 
-This Sprint 0 skeleton does not yet implement:
+The campaign boundary is implemented through persisted design versions,
+rendering, one-recipient test delivery, audience snapshots and campaign delivery
+records. Remaining work outside this delivery checkpoint includes:
 
-- persistent AssetLibrary integration
-- editor design-save endpoint
-- campaign-level test-send endpoint
-- audience resolution
-- schedule/send job creation
-- delivery summaries
-- workspace/team ownership
+- persistent AssetLibrary integration and stable public asset URLs
+- a structured campaign editor UI
+- workspace/team ownership beyond the current per-user boundary
 
 Those are separate contract-driven checkpoints.
 
@@ -345,8 +342,10 @@ A successful repeat test while already `test_sent` refreshes the test-send
 timestamp. A test sent while `ready` does not invalidate readiness when the
 design itself has not changed.
 
-Provider-specific delivery records remain Friend 5's ownership. This endpoint
-is an orchestration boundary, not the final bulk-send implementation.
+Campaign-level delivery records are implemented in `email_delivery/`. The
+test-send endpoint remains a separate one-recipient workflow; real campaign
+sends resolve a contact audience, persist a send job, and hand recipient-level
+delivery records to the Celery worker.
 
 ### Current integration acceptance path
 
@@ -368,3 +367,57 @@ ready
 
 Only the external/runtime edges are mocked; campaign persistence, renderer
 input assembly, state transitions and API boundaries are real.
+
+## Contacts, audience and campaign delivery
+
+The Contacts & delivery screen is available at `/contacts` in the frontend.
+It uses the authenticated campaign and email-delivery APIs and keeps the
+single-recipient test-send workflow separate from campaign sends.
+
+### Authentication
+
+The frontend obtains an access/refresh token pair with:
+
+```text
+POST /api/auth/token/
+POST /api/auth/token/refresh/
+```
+
+Protected API requests use `Authorization: Bearer <access token>`. Access
+tokens expire after 60 minutes; the refresh token can obtain a new access
+token. The UI keeps these tokens in the current browser tab's session storage.
+
+### Contacts and lists
+
+- `GET /api/email-delivery/contacts/`
+- `PATCH /api/email-delivery/contacts/{contact_id}/`
+- `POST /api/email-delivery/contacts/import/` with multipart `file` and optional
+  `list_id`
+- `GET|POST /api/email-delivery/contact-lists/`
+- `GET|POST /api/email-delivery/contact-lists/{list_id}/members/`
+
+CSV requires an `email` header. Optional fields include `first_name`,
+`last_name`, `display_name`, `consent_status`, `consented_at`,
+`consent_source` and `source`. An import reports accepted, duplicate, invalid
+and skipped rows. A row with `consent_status=granted` also needs a valid
+`consented_at` timestamp before it is eligible for campaigns.
+
+### Audience and delivery
+
+The frontend resolves selected list/contact IDs with
+`POST /api/campaigns/{campaign_id}/audience/resolve/`. The API deduplicates
+the selection and stores an immutable audience snapshot containing only active
+contacts with recorded consent. A campaign must be in `ready` state to send or
+schedule, and its delivery job is tied to that snapshot.
+
+- `POST /api/campaigns/{campaign_id}/send/` queues an immediate campaign send.
+- `POST /api/campaigns/{campaign_id}/schedule/` queues a future send.
+- `POST /api/campaigns/{campaign_id}/cancel-schedule/` cancels a scheduled job
+  before it starts.
+- `GET /api/campaigns/{campaign_id}/delivery-summary/` returns aggregate counts
+  and paginated recipient/provider records.
+- `POST /api/email-delivery/webhooks/resend/` verifies Resend's webhook
+  signature and stores provider events idempotently.
+
+Campaign job execution requires the configured Redis broker and a running
+Celery worker. Provider delivery also requires the backend Resend credentials.

@@ -761,3 +761,109 @@ This is still a temporary Phase 1 bridge. Production campaign delivery still
 needs the full AssetLibrary flow with rights/provenance checks, persistent
 object storage, stable Yo-kai-controlled URLs, lifecycle management, and
 campaign-safe hosting.
+
+
+## Contacts, campaign delivery, and Resend events
+
+The campaign delivery API keeps the one-recipient test-send endpoint separate
+from audience sends. Campaign sends can only use an immutable audience snapshot
+resolved from contact IDs and contact-list IDs; arbitrary recipient addresses
+are not accepted by campaign-send endpoints.
+
+### Contacts and lists
+
+Authenticated endpoints:
+
+```text
+GET  /api/email-delivery/contacts/
+PATCH /api/email-delivery/contacts/{contact_id}/
+POST /api/email-delivery/contacts/import/        (multipart CSV field: file)
+GET  /api/email-delivery/contact-lists/
+POST /api/email-delivery/contact-lists/
+GET  /api/email-delivery/contact-lists/{list_id}/members/
+POST /api/email-delivery/contact-lists/{list_id}/members/
+```
+
+CSV imports require an `email` column. Optional columns are `first_name`,
+`last_name`, `display_name`, `consent_status`, `consented_at`, `consent_source`,
+and `source`. An imported contact is eligible for sending only when consent is
+explicitly `granted` with an ISO-8601 `consented_at` timestamp. Other imported
+contacts remain pending consent. Imports return accepted, duplicate, invalid,
+and skipped row counts, with row-level reasons for invalid records.
+
+Contact email addresses are normalized case-insensitively and unique within
+each owner account. Contact-list membership and campaign ownership are scoped
+to the authenticated user. A contact can be marked unsubscribed with:
+
+```json
+{"status": "unsubscribed"}
+```
+
+### Resolve, send, and schedule a campaign
+
+First resolve an audience from owned IDs:
+
+```text
+POST /api/campaigns/{campaign_id}/audience/resolve/
+```
+
+```json
+{
+  "list_ids": ["contact-list-uuid"],
+  "contact_ids": []
+}
+```
+
+Resolution deduplicates normalized addresses and excludes unsubscribed,
+bounced, suppressed, complained, pending-consent, and unconsented contacts.
+The snapshot stores the selected recipient IDs and addresses so later contact
+edits do not rewrite the send audit. The worker checks contact suppression and
+consent again immediately before each send, which also protects scheduled jobs
+when a contact opts out after the audience was resolved.
+
+Only a campaign in `ready` state can be sent:
+
+```text
+POST /api/campaigns/{campaign_id}/send/
+POST /api/campaigns/{campaign_id}/schedule/
+POST /api/campaigns/{campaign_id}/cancel-schedule/
+GET  /api/campaigns/{campaign_id}/delivery-summary/
+```
+
+Scheduling accepts `{"scheduled_for": "2026-11-01T09:00:00Z"}`. Celery and
+Redis run campaign jobs. Each recipient is sent separately with a stable
+Resend idempotency key, and the database records the campaign, recipient,
+provider message ID, send state, and provider events. Provider event replays are
+deduplicated by the Svix event ID.
+
+### Worker and Resend configuration
+
+Add these backend-only values to `.env`:
+
+```text
+RESEND_CAMPAIGN_SEND_ENABLED=True
+RESEND_WEBHOOK_SECRET=whsec_...
+CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+```
+
+Campaign sending defaults to the `DEBUG` setting. In production, set it to
+`True` only after the Resend sender domain and Celery/Redis worker are ready.
+Start a Redis broker and a Celery worker from `backend/`:
+
+```powershell
+uv run celery -A core worker --pool=solo --loglevel=info
+```
+
+Configure the Resend webhook URL as:
+
+```text
+https://your-host/api/email-delivery/webhooks/resend/
+```
+
+The webhook endpoint verifies the Svix signature against the unmodified raw
+request body. It stores sent, delivered, delayed, bounced, failed, suppressed,
+complaint, open, and click events and updates contact suppression state for
+bounces, complaints, and provider suppression. Open and click counts are shown
+only when Resend sends those tracking events.
+The summary returns recipient-level records with provider message IDs and
+supports `limit` and `offset` query parameters (maximum page size 500).
