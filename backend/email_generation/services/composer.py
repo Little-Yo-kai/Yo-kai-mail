@@ -220,6 +220,7 @@ class GeminiEmailDesignComposer:
                             "one repair attempt."
                         ),
                         details=str(repair_error),
+                        reason="Invalid structured output",
                     ) from repair_error
 
             design = normalize_email_design(
