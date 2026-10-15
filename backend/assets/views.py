@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from .models import AssetRecord
@@ -14,7 +15,18 @@ from .services.promotion import InvalidPromotionError, promote_asset
 logger = logging.getLogger(__name__)
 
 
+def _owned_ref(request, label: str) -> str:
+    return f"u:{request.user.pk}:{label}"
+
+
+def _user_assets(request):
+    return AssetRecord.objects.filter(
+        owner_reference__startswith=f"u:{request.user.pk}:"
+    )
+
+
 class AssetImportView(APIView):
+    permission_classes = [IsAuthenticated]
     """
     POST /api/assets/import/
     Creates an AssetRecord for a discovered/uploaded image and runs it
@@ -41,7 +53,7 @@ class AssetImportView(APIView):
         data = serializer.validated_data
 
         asset = AssetRecord.objects.create(
-            owner_reference=data["owner_reference"],
+            owner_reference=_owned_ref(request, data["owner_reference"]),
             original_url=data["original_url"],
             source=data.get("source", ""),
         )
@@ -73,15 +85,17 @@ class AssetImportView(APIView):
 
 
 class AssetDetailView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/assets/{asset_id}/"""
 
     @extend_schema(responses=AssetRecordSerializer, summary="Get one asset's status")
     def get(self, request, asset_id):
-        asset = get_object_or_404(AssetRecord, asset_id=asset_id)
+        asset = get_object_or_404(_user_assets(request), asset_id=asset_id)
         return Response({"success": True, "data": AssetRecordSerializer(asset).data})
 
 
 class AssetListView(APIView):
+    permission_classes = [IsAuthenticated]
     """GET /api/assets/?owner_reference=campaign-123"""
 
     @extend_schema(
@@ -96,11 +110,11 @@ class AssetListView(APIView):
         summary="List assets, optionally filtered by owner",
     )
     def get(self, request):
-        queryset = AssetRecord.objects.all()
+        queryset = _user_assets(request)
 
         owner_reference = request.query_params.get("owner_reference")
         if owner_reference:
-            queryset = queryset.filter(owner_reference=owner_reference)
+            queryset = queryset.filter(owner_reference=_owned_ref(request, owner_reference))
 
         return Response(
             {"success": True, "data": AssetRecordSerializer(queryset, many=True).data}
@@ -108,6 +122,7 @@ class AssetListView(APIView):
 
 
 class AssetPromoteView(APIView):
+    permission_classes = [IsAuthenticated]
     """
     POST /api/assets/{asset_id}/promote/
     Moves a temporary asset to persistent storage. Intended to be called
