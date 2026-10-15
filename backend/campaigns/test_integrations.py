@@ -399,14 +399,14 @@ class CampaignIntegrationContractTests(TestCase):
                 "snapshot_id": str(snapshot_id),
                 "recipient_count": 125,
                 "excluded_count": 5,
-                "selection": {"list_ids": ["customers"]},
+                "selection": {"list_ids": ["11111111-1111-4111-8111-111111111111"]},
             }
         )
 
         result = resolve_campaign_audience(
             campaign,
             gateway=gateway,
-            selection={"list_ids": ["customers"]},
+            selection={"list_ids": ["11111111-1111-4111-8111-111111111111"]},
         )
 
         campaign.refresh_from_db()
@@ -414,7 +414,7 @@ class CampaignIntegrationContractTests(TestCase):
         self.assertEqual(campaign.audience_snapshot_id, snapshot_id)
         self.assertEqual(
             campaign.audience_selection,
-            {"list_ids": ["customers"]},
+            {"list_ids": ["11111111-1111-4111-8111-111111111111"]},
         )
 
     def test_empty_audience_snapshot_is_rejected(self):
@@ -736,10 +736,10 @@ class CampaignIntegrationContractTests(TestCase):
                     "snapshot_id": str(uuid4()),
                     "recipient_count": 20,
                     "excluded_count": 2,
-                    "selection": {"list_ids": ["customers"]},
+                    "selection": {"list_ids": ["11111111-1111-4111-8111-111111111111"]},
                 }
             ),
-            selection={"list_ids": ["customers"]},
+            selection={"list_ids": ["11111111-1111-4111-8111-111111111111"]},
         )
         campaign.refresh_from_db()
         self.assertIsNotNone(campaign.audience_snapshot_id)
@@ -855,7 +855,7 @@ class CampaignIntegrationApiTests(APITestCase):
                 "campaign-audience-resolve",
                 kwargs={"campaign_id": campaign.id},
             ),
-            {"selection": {"list_ids": ["customers"]}},
+            {"selection": {"list_ids": ["11111111-1111-4111-8111-111111111111"]}},
             format="json",
         )
 
@@ -864,7 +864,7 @@ class CampaignIntegrationApiTests(APITestCase):
         self.assertIsNotNone(campaign.audience_snapshot_id)
         self.assertEqual(
             campaign.audience_selection,
-            {"list_ids": ["customers"]},
+            {"list_ids": ["11111111-1111-4111-8111-111111111111"]},
         )
 
     @override_settings(
@@ -880,7 +880,7 @@ class CampaignIntegrationApiTests(APITestCase):
                 "campaign-audience-resolve",
                 kwargs={"campaign_id": campaign.id},
             ),
-            {"selection": {"list_ids": ["customers"]}},
+            {"selection": {"list_ids": ["11111111-1111-4111-8111-111111111111"]}},
             format="json",
         )
 
@@ -902,7 +902,7 @@ class CampaignIntegrationApiTests(APITestCase):
                 "campaign-audience-resolve",
                 kwargs={"campaign_id": campaign.id},
             ),
-            {"selection": {"list_ids": ["customers"]}},
+            {"selection": {"list_ids": ["11111111-1111-4111-8111-111111111111"]}},
             format="json",
         )
 

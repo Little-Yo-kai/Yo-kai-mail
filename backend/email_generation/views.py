@@ -7,14 +7,18 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.provider_errors import is_provider_rate_limited
+
 from .serializers import (
     ContentPlanRequestSerializer,
     EmailDesignRequestSerializer,
+    EmailSectionRegenerationRequestSerializer,
 )
 from .services.composer import (
     EmailDesignGenerationError,
     GeminiEmailDesignComposer,
 )
+from .services.regeneration import GeminiSectionRegenerator
 from .services.gemini import (
     ContentPlanGenerationError,
     GeminiCampaignStrategist,
@@ -62,13 +66,8 @@ class ContentPlanView(APIView):
             if settings.DEBUG and exc.details:
                 payload["details"] = exc.details
 
-            detail_text = (exc.details or "").lower()
             response_status = status.HTTP_502_BAD_GATEWAY
-            if (
-                "rate limit" in detail_text
-                or "too_many_requests" in detail_text
-                or "error code: 429" in detail_text
-            ):
+            if is_provider_rate_limited(exc, details=exc.details):
                 response_status = status.HTTP_429_TOO_MANY_REQUESTS
                 payload["error"] = "Gemini generation rate limit exceeded."
 
@@ -117,21 +116,47 @@ class EmailDesignView(APIView):
             )
         except EmailDesignGenerationError as exc:
             logger.exception("Email design generation failed")
-            payload = {"success": False, "error": str(exc)}
+            payload = exc.as_dict()
             if settings.DEBUG and exc.details:
                 payload["details"] = exc.details
 
-            detail_text = (exc.details or "").lower()
             response_status = status.HTTP_502_BAD_GATEWAY
-            if (
-                "rate limit" in detail_text
-                or "too_many_requests" in detail_text
-                or "error code: 429" in detail_text
-            ):
+            if is_provider_rate_limited(exc, details=exc.details):
                 response_status = status.HTTP_429_TOO_MANY_REQUESTS
                 payload["error"] = "Gemini generation rate limit exceeded."
 
             return Response(payload, status=response_status)
+
+        return Response(
+            {"success": True, "data": result},
+            status=status.HTTP_200_OK,
+        )
+
+
+class EmailSectionRegenerationView(APIView):
+    serializer_class = EmailSectionRegenerationRequestSerializer
+
+    @extend_schema(
+        request=EmailSectionRegenerationRequestSerializer,
+        responses=OpenApiTypes.OBJECT,
+        summary="Regenerate one EmailDesign section",
+        description=(
+            "Regenerates only the requested section. Application-owned facts, "
+            "approved assets, CTA destination URLs, and unrelated sections "
+            "remain authoritative."
+        ),
+    )
+    def post(self, request):
+        serializer = EmailSectionRegenerationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            result = GeminiSectionRegenerator().regenerate(
+                **serializer.validated_data
+            )
+        except EmailDesignGenerationError as exc:
+            logger.exception("Email section regeneration failed")
+            return Response(exc.as_dict(), status=status.HTTP_502_BAD_GATEWAY)
 
         return Response(
             {"success": True, "data": result},

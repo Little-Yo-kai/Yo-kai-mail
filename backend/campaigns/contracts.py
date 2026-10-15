@@ -101,6 +101,7 @@ class DesignRevisionGateway(Protocol):
         reference: dict,
         content_plan: dict,
         fact_ledger: dict,
+        asset_inventory: list[dict],
         email_design: dict,
         instruction: str,
     ) -> DesignRevisionResult | dict:

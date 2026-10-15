@@ -3,6 +3,7 @@ import ipaddress
 import socket
 from urllib.parse import urlparse
 
+from django.conf import settings
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
@@ -109,7 +110,11 @@ def capture_email_screenshot(
 
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
+            launch_options = {"headless": True}
+            executable = getattr(settings, "EMAIL_SCREENSHOT_EXECUTABLE_PATH", "")
+            if executable:
+                launch_options["executable_path"] = executable
+            browser = playwright.chromium.launch(**launch_options)
             page = browser.new_page(
                 viewport={
                     "width": viewport_width,

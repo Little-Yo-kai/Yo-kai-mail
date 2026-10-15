@@ -1,0 +1,23 @@
+[
+  {
+    "family": "luxury_editorial",
+    "brand_name": "Maison Example",
+    "destination_url": "https://example.com/luxury/bag",
+    "allowed_asset_ids": ["hero_1", "logo_primary"],
+    "expected_primary_action": "Discover the collection"
+  },
+  {
+    "family": "wellness_promo",
+    "brand_name": "Calm Leaf",
+    "destination_url": "https://example.com/wellness/kit",
+    "allowed_asset_ids": ["hero_1", "product_1"],
+    "expected_primary_action": "Shop the starter kit"
+  },
+  {
+    "family": "saas_newsletter",
+    "brand_name": "Ops Orbit",
+    "destination_url": "https://example.com/ops/product-updates",
+    "allowed_asset_ids": ["hero_1", "dashboard_1"],
+    "expected_primary_action": "Read the release"
+  }
+]

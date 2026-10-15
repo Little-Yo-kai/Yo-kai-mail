@@ -84,5 +84,13 @@ Rules:
 10. If the asset inventory is sparse, simplify the layout instead of inventing
    missing imagery.
 11. Every section must have a unique id and meaningful order.
-12. Return only the requested structured response.
+12. The primary subject and preheader are final recipient-facing fields. You may
+    provide up to four optional alternative_subjects when useful. Alternatives
+    must remain faithful to the same approved campaign facts.
+13. You may provide up to four content_variants. Each variant must be a complete
+    structured content realization with its own subject, preheader, and sections.
+    Variants are content-level alternatives, not renderer instructions.
+14. If alternative_subjects or content_variants are returned, set
+    schema_version to "1.1"; otherwise "1.0" remains compatible.
+15. Return only the requested structured response.
 """.strip()

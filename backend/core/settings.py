@@ -1,6 +1,7 @@
 import os
-from pathlib import Path
 from datetime import timedelta
+from pathlib import Path
+
 import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -12,7 +13,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 SECRET_KEY = env('SECRET_KEY', default='your-fallback-development-secret-key')
 DEBUG = env('DEBUG')
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', '[::1]'])
 
 
 # Application definition
@@ -34,6 +35,7 @@ INSTALLED_APPS = [
 
     # Local apps
     'website_intelligence',
+    'assets',
     'brand_intelligence',
     'campaigns',
     'reference_design',
@@ -81,10 +83,7 @@ TEMPLATES = [
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': env.db('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}'),
 }
 
 
@@ -124,8 +123,23 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Local asset storage is suitable for development and test environments.
+# Production email assets must use an externally reachable HTTPS CDN origin.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+ASSET_PUBLIC_BASE_URL = env(
+    'ASSET_PUBLIC_BASE_URL',
+    default='http://localhost:8000',
+)
+
+
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
 }
 
 SIMPLE_JWT = {
@@ -160,8 +174,17 @@ GEMINI_FALLBACK_MODEL = env(
     'GEMINI_FALLBACK_MODEL',
     default='gemini-3.1-flash-lite',
 )
+GEMINI_REVISION_MODEL = env(
+    'GEMINI_REVISION_MODEL',
+    default=GEMINI_GENERATION_MODEL,
+)
+EMAIL_DESIGN_REVISION_MAX_ATTEMPTS = env.int(
+    'EMAIL_DESIGN_REVISION_MAX_ATTEMPTS',
+    default=1,
+)
 
 MJML_NODE_BINARY = env('MJML_NODE_BINARY', default='node')
+EMAIL_SCREENSHOT_EXECUTABLE_PATH = env('EMAIL_SCREENSHOT_EXECUTABLE_PATH', default='')
 MJML_COMPILE_TIMEOUT_SECONDS = env.int(
     'MJML_COMPILE_TIMEOUT_SECONDS',
     default=10,
@@ -177,23 +200,42 @@ RESEND_TEST_SEND_ENABLED = env.bool(
     default=DEBUG,
 )
 
+# Production campaign sending is opt-in, even on local development machines.
+RESEND_CAMPAIGN_SEND_ENABLED = env.bool(
+    'RESEND_CAMPAIGN_SEND_ENABLED',
+    default=False,
+)
+RESEND_WEBHOOK_SECRET = env('RESEND_WEBHOOK_SECRET', default='')
+
+CELERY_BROKER_URL = env(
+    'CELERY_BROKER_URL',
+    default=env('REDIS_URL', default='redis://127.0.0.1:6379/0'),
+)
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TIMEZONE = TIME_ZONE
+
 # Campaign integration gateways. Teammate-owned implementations plug into
 # these import paths without creating direct app-to-app model imports.
 CAMPAIGN_ASSET_PROMOTION_GATEWAY = env(
     'CAMPAIGN_ASSET_PROMOTION_GATEWAY',
-    default='',
+    default='assets.campaign_gateway.CampaignAssetGateway',
 )
 CAMPAIGN_DESIGN_REVISION_GATEWAY = env(
     'CAMPAIGN_DESIGN_REVISION_GATEWAY',
-    default='',
+    default='email_visual_qa.campaign_gateway.CampaignDesignRevisionGateway',
 )
 CAMPAIGN_AUDIENCE_GATEWAY = env(
     'CAMPAIGN_AUDIENCE_GATEWAY',
-    default='',
+    default='email_delivery.campaign_gateway.ContactsAudienceGateway',
 )
 CAMPAIGN_DELIVERY_GATEWAY = env(
     'CAMPAIGN_DELIVERY_GATEWAY',
-    default='',
+    default='email_delivery.campaign_gateway.ResendCampaignDeliveryGateway',
 )
 
 EMAIL_ASSET_CACHE_DIR = env(
@@ -234,4 +276,10 @@ SPECTACULAR_SETTINGS = {
     # File fields have different request/response representations.
     # Splitting them lets Swagger render multipart FileField inputs correctly.
     'COMPONENT_SPLIT_REQUEST': True,
+    'ENUM_NAME_OVERRIDES': {
+        'CampaignStatusEnum': 'campaigns.models.CampaignStatus.choices',
+        'CampaignTransitionStatusEnum': ['reviewed', 'ready'],
+        'ContactStatusEnum': 'email_delivery.models.ContactStatus.choices',
+        'ConsentStatusEnum': 'email_delivery.models.ConsentStatus.choices',
+    },
 }

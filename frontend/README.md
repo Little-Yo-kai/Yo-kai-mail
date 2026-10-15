@@ -79,3 +79,19 @@ the user choose **Check delivery status** to retrieve the latest provider event.
 This is deliberately not the campaign/bulk-send interface. The eventual campaign
 flow will select contacts, lists, or segments and will apply unsubscribe,
 suppression, deduplication, and delivery-job rules before sending.
+
+## Contacts and campaign delivery
+
+Open `/contacts` to sign in, import a CSV, organize contact lists, resolve an
+eligible campaign audience, schedule or queue a campaign, and review
+recipient-level delivery events. Sign in with an existing Django account;
+account registration is not part of this frontend.
+
+CSV imports require an `email` column. To make a contact eligible for campaign
+sends, include `consent_status=granted` and a valid `consented_at` timestamp.
+Unsubscribed, bounced, suppressed, complained, or unconsented contacts are
+excluded during audience resolution.
+
+Campaign delivery is separate from the one-recipient test send. Only campaigns
+with a persisted design and `ready` status can be sent. Scheduling and delivery
+need a running Redis broker/Celery worker and a configured Resend API key.

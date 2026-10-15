@@ -1,40 +1,110 @@
-name: Backend validation
+name: Project validation
 
 on:
   push:
     branches:
+      - main
       - 'feat/phase2-integration-contracts'
       - 'integration/**'
   pull_request:
     paths:
       - 'backend/**'
-      - '.github/workflows/backend-validation.yml'
+      - 'frontend/**'
+      - '.github/workflows/**'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   backend:
+    name: Backend (${{ matrix.database }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: yokai
+          POSTGRES_PASSWORD: yokai-test-only
+          POSTGRES_DB: yokai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: ${{ matrix.database == 'postgres' && 'postgresql://yokai:yokai-test-only@localhost:5432/yokai' || 'sqlite:///db.sqlite3' }}
+      EMAIL_RUNTIME_SMOKE: '1'
+      EMAIL_BROWSER_SMOKE: ${{ matrix.database == 'sqlite' && '1' || '0' }}
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
         with:
-          enable-cache: true
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/mjml_runtime/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Install dependencies
-        run: uv sync
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Install MJML compiler
+        run: npm ci --prefix mjml_runtime --no-audit --no-fund
+      - name: Install screenshot browser
+        if: matrix.database == 'sqlite'
+        run: |
+          if command -v google-chrome >/dev/null; then
+            echo "EMAIL_SCREENSHOT_EXECUTABLE_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          else
+            uv run --frozen playwright install --with-deps --only-shell chromium
+          fi
       - name: Django system check
-        run: uv run python manage.py check
+        run: uv run --frozen python manage.py check
       - name: Migration consistency
-        run: uv run python manage.py makemigrations --check --dry-run
-      - name: Campaign tests
-        run: uv run python manage.py test campaigns
-      - name: Full backend regression
-        run: uv run python manage.py test
+        run: uv run --frozen python manage.py makemigrations --check --dry-run
+      - name: Apply migrations
+        run: uv run --frozen python manage.py migrate --noinput
+      - name: Validate OpenAPI schema
+        run: uv run --frozen python manage.py spectacular --validate --fail-on-warn --file /tmp/yokai-schema.yml
+      - name: Campaign integration tests
+        run: uv run --frozen python manage.py test campaigns --noinput
+      - name: Full backend and runtime regression
+        run: uv run --frozen python manage.py test --noinput
+
+  frontend:
+    name: Frontend production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build and type-check
+        run: npm run build

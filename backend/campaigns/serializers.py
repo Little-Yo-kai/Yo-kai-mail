@@ -318,7 +318,14 @@ class CampaignRevisionSerializer(serializers.Serializer):
 
 
 class CampaignAudienceResolveSerializer(serializers.Serializer):
-    selection = serializers.JSONField()
+    selection = serializers.DictField()
+
+    def validate_selection(self, value):
+        for name in ("list_ids", "contact_ids"):
+            if name in value:
+                field = serializers.ListField(child=serializers.UUIDField(), max_length=10000)
+                value[name] = [str(item) for item in field.run_validation(value[name])]
+        return value
 
 
 class CampaignDeliveryRequestSerializer(serializers.Serializer):
