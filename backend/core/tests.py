@@ -1,9 +1,10 @@
 from unittest.mock import Mock
 
-from core.ai_fallback import call_with_model_fallback
-from core.provider_errors import is_provider_rate_limited
 from django.test import TestCase
 from django.urls import reverse
+
+from core.ai_fallback import call_with_model_fallback
+from core.provider_errors import is_provider_rate_limited
 
 
 class ApiSchemaTests(TestCase):

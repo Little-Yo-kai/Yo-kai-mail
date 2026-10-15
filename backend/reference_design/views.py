@@ -1,4 +1,5 @@
 import logging
+from typing import ClassVar
 
 from django.conf import settings
 from drf_spectacular.utils import extend_schema
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class ReferenceDesignAnalyzeView(APIView):
     serializer_class = ReferenceDesignAnalyzeSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes: ClassVar = [MultiPartParser, FormParser]
 
     @extend_schema(
         request=ReferenceDesignAnalyzeSerializer,

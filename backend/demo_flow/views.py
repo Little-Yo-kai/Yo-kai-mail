@@ -1,4 +1,5 @@
 import logging
+from typing import ClassVar
 
 from django.conf import settings
 from drf_spectacular.types import OpenApiTypes
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class DemoGenerateView(APIView):
     serializer_class = DemoGenerateSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes: ClassVar = [MultiPartParser, FormParser]
 
     @extend_schema(
         request=DemoGenerateSerializer,

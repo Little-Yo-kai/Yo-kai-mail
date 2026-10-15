@@ -1,11 +1,11 @@
 import json
 
 from django.conf import settings
-from core.ai_fallback import call_with_model_fallback
 from google import genai
 from pydantic import ValidationError
 
 from brand_intelligence.schemas import BrandProfile
+from core.ai_fallback import call_with_model_fallback
 from email_generation.builders import (
     normalize_email_design,
     repair_email_design_payload,
