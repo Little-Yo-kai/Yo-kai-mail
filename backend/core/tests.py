@@ -1,8 +1,10 @@
 from unittest.mock import Mock
 
-from core.ai_fallback import call_with_model_fallback
 from django.test import TestCase
 from django.urls import reverse
+
+from core.ai_fallback import call_with_model_fallback
+from core.provider_errors import is_provider_rate_limited
 
 
 class ApiSchemaTests(TestCase):
@@ -53,3 +55,15 @@ class AiFallbackTests(TestCase):
             )
 
         self.assertEqual(create.call_count, 1)
+
+    def test_provider_error_classification_keeps_non_rate_limit_failures(self):
+        self.assertFalse(
+            is_provider_rate_limited(
+                RuntimeError("authentication failed: invalid key")
+            )
+        )
+        self.assertTrue(
+            is_provider_rate_limited(
+                RuntimeError("Error code: 429 - too_many_requests")
+            )
+        )

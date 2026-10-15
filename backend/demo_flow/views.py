@@ -1,4 +1,5 @@
 import logging
+from typing import ClassVar
 
 from django.conf import settings
 from drf_spectacular.types import OpenApiTypes
@@ -8,6 +9,8 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.provider_errors import is_provider_rate_limited
+
 from .serializers import DemoGenerateSerializer
 from .service import DemoGenerationError, generate_phase1_demo
 
@@ -16,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class DemoGenerateView(APIView):
     serializer_class = DemoGenerateSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes: ClassVar = [MultiPartParser, FormParser]
 
     @extend_schema(
         request=DemoGenerateSerializer,
@@ -58,13 +61,8 @@ class DemoGenerateView(APIView):
             if settings.DEBUG and exc.details:
                 payload["details"] = exc.details
 
-            detail_text = (exc.details or "").lower()
             response_status = status.HTTP_502_BAD_GATEWAY
-            if (
-                "rate limit" in detail_text
-                or "too_many_requests" in detail_text
-                or "error code: 429" in detail_text
-            ):
+            if is_provider_rate_limited(exc, details=exc.details):
                 response_status = status.HTTP_429_TOO_MANY_REQUESTS
 
             return Response(

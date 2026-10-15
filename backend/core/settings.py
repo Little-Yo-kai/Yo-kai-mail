@@ -1,6 +1,7 @@
 import os
-from pathlib import Path
 from datetime import timedelta
+from pathlib import Path
+
 import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -159,6 +160,14 @@ GEMINI_CRITIC_MODEL = env(
 GEMINI_FALLBACK_MODEL = env(
     'GEMINI_FALLBACK_MODEL',
     default='gemini-3.1-flash-lite',
+)
+GEMINI_REVISION_MODEL = env(
+    'GEMINI_REVISION_MODEL',
+    default=GEMINI_GENERATION_MODEL,
+)
+EMAIL_DESIGN_REVISION_MAX_ATTEMPTS = env.int(
+    'EMAIL_DESIGN_REVISION_MAX_ATTEMPTS',
+    default=1,
 )
 
 MJML_NODE_BINARY = env('MJML_NODE_BINARY', default='node')

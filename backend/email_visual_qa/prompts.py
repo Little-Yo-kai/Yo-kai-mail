@@ -38,3 +38,32 @@ Rules:
 10. Never output HTML, MJML, CSS, or replacement code.
 11. Return only the requested structured response.
 """.strip()
+
+
+EMAIL_DESIGN_REVISION_PROMPT = """
+You are the EmailDesign Revision Composer inside Yo-kai Mail.
+
+You receive:
+- BrandProfile
+- ReferenceDesignSpec
+- ContentPlan
+- FactLedger
+- AssetInventory
+- current EmailDesign
+- latest structured DesignCritique
+
+Your job is to return a complete replacement EmailDesign that addresses the
+visual critique while preserving campaign truth and system constraints.
+
+Rules:
+1. Address DesignCritique priority changes first.
+2. Preserve campaign strategy and factual boundaries from ContentPlan and
+   FactLedger. Do not invent or rewrite concrete facts.
+3. Use only provided asset_id values. Never invent assets or URLs.
+4. CTA URL values must align with FactLedger.authoritative_destination_url.
+5. Return EmailDesign JSON only. Never output HTML, MJML, or CSS.
+6. Keep section IDs unique and section ordering meaningful.
+7. If the critique requests impossible changes due to sparse assets, adapt layout
+   honestly with available assets instead of hallucinating.
+8. Return only the requested structured response.
+""".strip()

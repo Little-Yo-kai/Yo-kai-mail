@@ -7,6 +7,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from .schemas import DesignCritique
 from .services.gemini import GeminiDesignCritic
 
 
@@ -350,4 +351,206 @@ class DesignCritiqueApiTests(APITestCase):
         self.assertEqual(
             critic_call["screenshot_base64"],
             "iVBORw0KGgoAAAANSUhEUg==",
+        )
+
+    @patch("email_visual_qa.views.GeminiDesignCritic")
+    @patch("email_visual_qa.views.capture_email_screenshot")
+    @patch("email_visual_qa.views.compile_mjml_to_html")
+    @patch("email_visual_qa.views.render_email_to_mjml")
+    def test_critique_endpoint_hides_developer_diagnostics_by_default(
+        self,
+        render_mock,
+        compile_mock,
+        screenshot_mock,
+        critic_class,
+    ):
+        render_mock.return_value = {
+            "mjml": "<mjml><mj-body></mj-body></mjml>",
+            "rendered_sections": 3,
+            "available_asset_ids": ["og_image"],
+        }
+        compile_mock.return_value = {
+            "html": "<!doctype html><html><body>Rendered</body></html>",
+            "compiler_errors": [],
+        }
+        screenshot_mock.return_value = {
+            "image_base64": "iVBORw0KGgoAAAANSUhEUg==",
+            "mime_type": "image/png",
+            "width": 760,
+            "height": 953,
+            "image_diagnostics": {
+                "total": 1,
+                "loaded": 1,
+                "broken": [],
+            },
+            "image_network_events": [
+                {"url": "https://example.com/product.jpg", "status": 200}
+            ],
+        }
+        critic_class.return_value.critique.return_value = sample_critique()
+
+        response = self.client.post(
+            reverse("email-design-critique"),
+            {
+                "brand_profile": sample_brand_profile(),
+                "email_design": sample_email_design(),
+                "reference_design_spec": sample_reference_spec(),
+                "asset_inventory": sample_assets(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(
+            "developer_diagnostics",
+            response.data["data"],
+        )
+
+    @patch("email_visual_qa.views.GeminiDesignCritic")
+    @patch("email_visual_qa.views.capture_email_screenshot")
+    @patch("email_visual_qa.views.compile_mjml_to_html")
+    @patch("email_visual_qa.views.render_email_to_mjml")
+    def test_critique_endpoint_can_include_developer_diagnostics(
+        self,
+        render_mock,
+        compile_mock,
+        screenshot_mock,
+        critic_class,
+    ):
+        render_mock.return_value = {
+            "mjml": "<mjml><mj-body></mj-body></mjml>",
+            "rendered_sections": 3,
+            "available_asset_ids": ["og_image"],
+        }
+        compile_mock.return_value = {
+            "html": "<!doctype html><html><body>Rendered</body></html>",
+            "compiler_errors": [],
+        }
+        screenshot_mock.return_value = {
+            "image_base64": "iVBORw0KGgoAAAANSUhEUg==",
+            "mime_type": "image/png",
+            "width": 760,
+            "height": 953,
+            "image_diagnostics": {
+                "total": 1,
+                "loaded": 1,
+                "broken": [],
+            },
+            "image_network_events": [
+                {"url": "https://example.com/product.jpg", "status": 200}
+            ],
+        }
+        critic_class.return_value.critique.return_value = sample_critique()
+
+        response = self.client.post(
+            reverse("email-design-critique"),
+            {
+                "brand_profile": sample_brand_profile(),
+                "email_design": sample_email_design(),
+                "reference_design_spec": sample_reference_spec(),
+                "asset_inventory": sample_assets(),
+                "include_diagnostics": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(
+            "developer_diagnostics",
+            response.data["data"],
+        )
+        self.assertIn(
+            "image_network_events",
+            response.data["data"]["developer_diagnostics"],
+        )
+
+
+class DesignCritiqueSchemaSafetyTests(APITestCase):
+    def test_schema_rejects_html_css_or_mjml_markup(self):
+        unsafe = sample_critique()
+        unsafe["summary"] = "<style>body{display:none}</style>"
+
+        with self.assertRaises(ValueError):
+            DesignCritique.model_validate(unsafe)
+
+
+class DesignRevisionApiTests(APITestCase):
+    @patch("email_visual_qa.views.GeminiEmailDesignReviser")
+    def test_revision_endpoint_returns_bounded_result(self, reviser_class):
+        reviser_class.return_value.revise.return_value = {
+            "email_design": sample_email_design(),
+            "design_critique": sample_critique(),
+            "revision_notes": ["Revision completed in 1 attempt(s)."],
+            "attempts_used": 1,
+            "max_attempts": 1,
+            "terminated_reason": "approved",
+            "completed": True,
+        }
+
+        response = self.client.post(
+            reverse("email-design-revise"),
+            {
+                "brand_profile": sample_brand_profile(),
+                "email_design": sample_email_design(),
+                "reference_design_spec": sample_reference_spec(),
+                "content_plan": {
+                    "schema_version": "1.0",
+                    "campaign_angle": "Angle",
+                    "strategic_rationale": "Rationale",
+                    "audience_focus": "Audience",
+                    "primary_message": "Primary",
+                    "supporting_messages": ["One"],
+                    "subject_line_angles": ["One", "Two"],
+                    "preheader_direction": "Direction",
+                    "content_hierarchy": [
+                        {
+                            "order": 1,
+                            "role": "emotional_hook",
+                            "objective": "Objective",
+                            "key_message": "Message",
+                            "recommended_section_type": "hero",
+                            "preferred_asset_role": "hero",
+                        }
+                    ],
+                    "cta_strategy": {
+                        "primary_action": "Discover",
+                        "destination_url": "https://example.com/product",
+                        "frequency": "low",
+                        "placement_strategy": "After hook",
+                        "tone": "clear",
+                    },
+                    "copy_strategy": {
+                        "tone": ["refined"],
+                        "density": "low",
+                        "sentence_style": "Short",
+                        "emphasis_style": "Restrained",
+                        "avoid": [],
+                    },
+                    "asset_strategy": [],
+                    "reference_adaptation": {
+                        "principles_to_preserve": ["Restraint"],
+                        "elements_to_avoid_copying": [],
+                        "adaptation_notes": ["Adapt"],
+                    },
+                    "claim_constraints": ["No unsupported claims"],
+                },
+                "fact_ledger": {
+                    "brand_name": "Example",
+                    "product_name": "Product",
+                    "verified_facts": ["Brand: Example"],
+                    "offer_facts": [],
+                    "authoritative_destination_url": "https://example.com/product",
+                    "forbidden_claim_categories": ["unsupported claims"],
+                },
+                "asset_inventory": sample_assets(),
+                "design_critique": sample_critique(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(
+            response.data["data"]["attempts_used"],
+            1,
         )
