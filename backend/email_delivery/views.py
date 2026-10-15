@@ -1,11 +1,28 @@
+import json
 import logging
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .models import (
+    Contact,
+    ContactList,
+    ContactListMembership,
+)
+from .serializers_campaign import (
+    ContactImportSerializer,
+    ContactListMembersSerializer,
+    ContactListSerializer,
+    ContactSerializer,
+    ContactUpdateSerializer,
+)
 from .serializers import (
     TestEmailSendSerializer,
     TestEmailStatusResponseSerializer,
@@ -14,6 +31,12 @@ from .services.resend import (
     ResendDeliveryError,
     ResendEmailService,
     ResendNotConfiguredError,
+)
+from .services.campaigns import (
+    ContactImportError,
+    import_contacts_csv,
+    record_resend_webhook,
+    verify_resend_signature,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,5 +178,261 @@ class TestEmailStatusView(APIView):
                 "success": True,
                 "data": result,
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ContactListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: ContactSerializer(many=True)})
+    def get(self, request):
+        contacts = Contact.objects.filter(owner=request.user)
+        list_id = request.query_params.get("list_id")
+        if list_id:
+            contact_list = get_object_or_404(
+                ContactList,
+                owner=request.user,
+                id=list_id,
+            )
+            contacts = contacts.filter(
+                list_memberships__contact_list=contact_list
+            )
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            contacts = contacts.filter(status=status_filter)
+        return Response(
+            {"success": True, "data": ContactSerializer(contacts.distinct(), many=True).data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ContactDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, contact_id):
+        contact = get_object_or_404(
+            Contact,
+            owner=request.user,
+            id=contact_id,
+        )
+        serializer = ContactUpdateSerializer(
+            contact,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        contact = serializer.save()
+        return Response(
+            {"success": True, "data": ContactSerializer(contact).data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ContactImportView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    serializer_class = ContactImportSerializer
+
+    @extend_schema(
+        request=ContactImportSerializer,
+        summary="Import contacts from a CSV file",
+        description=(
+            "Required column: email. Optional columns include first_name, "
+            "last_name, display_name, consent_status, consented_at, "
+            "consent_source, and source. A contact is eligible for a campaign "
+            "only after active consent has been recorded."
+        ),
+    )
+    def post(self, request):
+        serializer = ContactImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        contact_list = None
+        list_id = serializer.validated_data.get("list_id")
+        if list_id:
+            contact_list = get_object_or_404(
+                ContactList,
+                owner=request.user,
+                id=list_id,
+            )
+        try:
+            summary = import_contacts_csv(
+                uploaded_file=serializer.validated_data["file"],
+                owner=request.user,
+                contact_list=contact_list,
+            )
+        except ContactImportError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {"success": True, "data": summary},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ContactListsView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ContactListSerializer
+
+    def get(self, request):
+        lists = ContactList.objects.filter(owner=request.user)
+        return Response(
+            {"success": True, "data": ContactListSerializer(lists, many=True).data},
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        serializer = ContactListSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                contact_list = serializer.save(owner=request.user)
+        except IntegrityError:
+            return Response(
+                {"success": False, "error": "A contact list with that name already exists."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {"success": True, "data": ContactListSerializer(contact_list).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ContactListDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, list_id):
+        contact_list = get_object_or_404(
+            ContactList,
+            id=list_id,
+            owner=request.user,
+        )
+        return Response(
+            {"success": True, "data": ContactListSerializer(contact_list).data},
+            status=status.HTTP_200_OK,
+        )
+
+    def patch(self, request, list_id):
+        contact_list = get_object_or_404(
+            ContactList,
+            id=list_id,
+            owner=request.user,
+        )
+        serializer = ContactListSerializer(
+            contact_list,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                contact_list = serializer.save()
+        except IntegrityError:
+            return Response(
+                {"success": False, "error": "A contact list with that name already exists."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {"success": True, "data": ContactListSerializer(contact_list).data},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ContactListMembersView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ContactListMembersSerializer
+
+    def get(self, request, list_id):
+        contact_list = get_object_or_404(
+            ContactList,
+            id=list_id,
+            owner=request.user,
+        )
+        contacts = Contact.objects.filter(
+            owner=request.user,
+            list_memberships__contact_list=contact_list,
+        ).distinct()
+        return Response(
+            {"success": True, "data": ContactSerializer(contacts, many=True).data},
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(request=ContactListMembersSerializer)
+    def post(self, request, list_id):
+        contact_list = get_object_or_404(
+            ContactList,
+            id=list_id,
+            owner=request.user,
+        )
+        serializer = ContactListMembersSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        contact_ids = set(serializer.validated_data["contact_ids"])
+        contacts = list(
+            Contact.objects.filter(owner=request.user, id__in=contact_ids)
+        )
+        if len(contacts) != len(contact_ids):
+            return Response(
+                {"success": False, "error": "One or more contacts were not found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        added = 0
+        with transaction.atomic():
+            for contact in contacts:
+                _, created = ContactListMembership.objects.get_or_create(
+                    contact_list=contact_list,
+                    contact=contact,
+                    defaults={"source": "manual"},
+                )
+                added += int(created)
+        return Response(
+            {"success": True, "data": {"added": added, "member_count": contact_list.memberships.count()}},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ResendWebhookView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        request=None,
+        summary="Ingest a signed Resend delivery event",
+        description=(
+            "Validates Resend's Svix signature against the raw request body, "
+            "then idempotently records supported email events."
+        ),
+    )
+    def post(self, request):
+        if not settings.RESEND_WEBHOOK_SECRET:
+            return Response(
+                {"success": False, "error": "Resend webhook verification is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        raw_body = request.body
+        if not verify_resend_signature(
+            raw_body=raw_body,
+            headers=request.headers,
+            secret=settings.RESEND_WEBHOOK_SECRET,
+        ):
+            return Response(
+                {"success": False, "error": "Invalid webhook signature."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            payload = json.loads(raw_body)
+            if not isinstance(payload, dict):
+                raise ValueError("Invalid Resend webhook payload.")
+            result = record_resend_webhook(
+                provider_event_id=request.headers.get("svix-id"),
+                payload=payload,
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {"success": True, "data": result},
             status=status.HTTP_200_OK,
         )
