@@ -7,6 +7,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.provider_errors import is_provider_rate_limited
 from email_rendering.compiler import (
     MJMLCompilerError,
     compile_mjml_to_html,
@@ -20,11 +21,18 @@ from email_rendering.screenshot import (
     capture_email_screenshot,
 )
 
-from .serializers import DesignCritiqueRequestSerializer
+from .serializers import (
+    DesignCritiqueRequestSerializer,
+    DesignRevisionRequestSerializer,
+)
 from .services.gemini import (
     DesignCriticNotConfiguredError,
     DesignCritiqueError,
     GeminiDesignCritic,
+)
+from .services.revision import (
+    EmailDesignRevisionError,
+    GeminiEmailDesignReviser,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +54,10 @@ class DesignCritiqueView(APIView):
     def post(self, request):
         serializer = DesignCritiqueRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        include_diagnostics = serializer.validated_data.get(
+            "include_diagnostics",
+            False,
+        )
 
         asset_inventory = serializer.validated_data.get(
             "asset_inventory",
@@ -138,13 +150,8 @@ class DesignCritiqueView(APIView):
             if settings.DEBUG and exc.details:
                 payload["details"] = exc.details
 
-            detail_text = (exc.details or "").lower()
             response_status = status.HTTP_502_BAD_GATEWAY
-            if (
-                "rate limit" in detail_text
-                or "too_many_requests" in detail_text
-                or "error code: 429" in detail_text
-            ):
+            if is_provider_rate_limited(exc, details=exc.details):
                 response_status = status.HTTP_429_TOO_MANY_REQUESTS
                 payload["error"] = (
                     "Gemini design critic rate limit exceeded."
@@ -155,23 +162,99 @@ class DesignCritiqueView(APIView):
                 status=response_status,
             )
 
+        data = {
+            "design_critique": critique,
+            "render_metadata": {
+                "width": screenshot_result["width"],
+                "height": screenshot_result["height"],
+                "mime_type": screenshot_result["mime_type"],
+                "image_diagnostics": screenshot_result[
+                    "image_diagnostics"
+                ],
+            },
+            "compiler_errors": compile_result["compiler_errors"],
+        }
+        if include_diagnostics:
+            data["developer_diagnostics"] = {
+                "image_network_events": screenshot_result.get(
+                    "image_network_events",
+                    [],
+                ),
+                "available_asset_ids": render_result[
+                    "available_asset_ids"
+                ],
+                "rendered_sections": render_result["rendered_sections"],
+            }
+
         return Response(
             {
                 "success": True,
-                "data": {
-                    "design_critique": critique,
-                    "render_metadata": {
-                        "width": screenshot_result["width"],
-                        "height": screenshot_result["height"],
-                        "mime_type": screenshot_result["mime_type"],
-                        "image_diagnostics": screenshot_result[
-                            "image_diagnostics"
-                        ],
-                    },
-                    "compiler_errors": compile_result[
-                        "compiler_errors"
-                    ],
-                },
+                "data": data,
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DesignRevisionView(APIView):
+    serializer_class = DesignRevisionRequestSerializer
+
+    @extend_schema(
+        request=DesignRevisionRequestSerializer,
+        responses=OpenApiTypes.OBJECT,
+        summary="Generate bounded visual-aware EmailDesign revisions",
+        description=(
+            "Consumes a structured visual critique and generates a revised "
+            "EmailDesign with a deterministic 1–2 attempt maximum."
+        ),
+    )
+    def post(self, request):
+        serializer = DesignRevisionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            result = GeminiEmailDesignReviser().revise(
+                brand_profile=serializer.validated_data["brand_profile"],
+                email_design=serializer.validated_data["email_design"],
+                reference_design_spec=serializer.validated_data[
+                    "reference_design_spec"
+                ],
+                content_plan=serializer.validated_data["content_plan"],
+                fact_ledger=serializer.validated_data["fact_ledger"],
+                asset_inventory=serializer.validated_data.get(
+                    "asset_inventory",
+                    [],
+                ),
+                design_critique=serializer.validated_data.get(
+                    "design_critique"
+                ),
+                max_revision_attempts=serializer.validated_data.get(
+                    "max_revision_attempts"
+                ),
+                include_diagnostics=serializer.validated_data.get(
+                    "include_diagnostics",
+                    False,
+                ),
+            )
+        except DesignCriticNotConfiguredError as exc:
+            return Response(
+                {"success": False, "error": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except EmailDesignRevisionError as exc:
+            logger.exception("Visual email design revision failed")
+            payload = {"success": False, "error": str(exc)}
+            if settings.DEBUG and exc.details:
+                payload["details"] = exc.details
+
+            response_status = status.HTTP_502_BAD_GATEWAY
+            if is_provider_rate_limited(exc, details=exc.details):
+                response_status = status.HTTP_429_TOO_MANY_REQUESTS
+                payload["error"] = (
+                    "Gemini visual revision rate limit exceeded."
+                )
+            return Response(payload, status=response_status)
+
+        return Response(
+            {"success": True, "data": result},
             status=status.HTTP_200_OK,
         )

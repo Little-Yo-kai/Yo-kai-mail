@@ -113,7 +113,7 @@ def create_design_version(
     user,
     source: str = DesignVersionSource.GENERATED,
 ) -> CampaignDesignVersion:
-    locked_campaign = Campaign.objects.select_for_update().get(
+    locked_campaign = Campaign.objects.select_for_update(of=("self",)).get(
         pk=campaign.pk
     )
     current_max = (
@@ -161,7 +161,7 @@ def generate_campaign(
 
     with transaction.atomic():
         campaign = (
-            Campaign.objects.select_for_update()
+            Campaign.objects.select_for_update(of=("self",))
             .select_related("active_design")
             .get(pk=campaign.pk)
         )
@@ -352,7 +352,7 @@ def send_campaign_test(
 
     with transaction.atomic():
         campaign = (
-            Campaign.objects.select_for_update()
+            Campaign.objects.select_for_update(of=("self",))
             .select_related("active_design")
             .get(pk=campaign.pk)
         )

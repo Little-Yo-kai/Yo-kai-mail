@@ -1,5 +1,12 @@
 # Campaign Orchestration Contract
 
+Current integrated adapters for assets, visual revision, audiences and delivery
+are configured in `core/settings.py` and `.env.example`. See the
+[team integration notes](../../docs/team-integration-20261015.md) for current
+implementation status; earlier checkpoint notes below describe the evolution
+of the interfaces. The revision gateway also receives the persisted
+`asset_inventory` with its other structured inputs.
+
 This document defines the Phase 2 campaign boundary owned by integration/orchestration.
 
 Other subsystems should depend on these campaign-level contracts rather than
@@ -588,7 +595,8 @@ CAMPAIGN_AUDIENCE_GATEWAY
 CAMPAIGN_DELIVERY_GATEWAY
 ```
 
-The values stay blank until the teammate-owned adapter exists.
+The included adapters are the defaults. An explicitly blank environment value
+can still disable a gateway.
 
 ### Campaign integration API
 

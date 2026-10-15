@@ -561,8 +561,44 @@ The critic model is configured separately:
 GEMINI_CRITIC_MODEL=gemini-3.1-flash-lite
 ```
 
-Checkpoint 9C will consume `DesignCritique` and create one bounded revised
-EmailDesign. The revision loop will have a hard maximum iteration count.
+## 12. Checkpoint 9C — Bounded EmailDesign Revision Loop
+
+Checkpoint 9C consumes `DesignCritique` and produces a bounded revised
+`EmailDesign` while preserving factual and asset constraints.
+
+Endpoint:
+
+```text
+POST /api/email-visual-qa/revise/
+```
+
+Request fields:
+
+- `brand_profile`
+- `email_design` (current design)
+- `reference_design_spec`
+- `content_plan`
+- `fact_ledger`
+- optional `asset_inventory`
+- optional `design_critique` (when omitted, the backend generates it first)
+- optional `max_revision_attempts` (bounded to 1–2)
+- optional `include_diagnostics` (developer diagnostics opt-in)
+
+The revision service:
+
+- enforces a deterministic max-attempt loop (default from
+  `EMAIL_DESIGN_REVISION_MAX_ATTEMPTS`, bounded to 1–2)
+- uses rendered HTML screenshots for every critique cycle
+- preserves allowed `asset_id` values and authoritative CTA URLs
+- returns structured `DesignCritique` only (no HTML/MJML/CSS payloads)
+- keeps the last valid `EmailDesign` when a downstream critic pass fails
+
+Related settings:
+
+```text
+GEMINI_REVISION_MODEL=gemini-3.8-flash
+EMAIL_DESIGN_REVISION_MAX_ATTEMPTS=1
+```
 
 
 ### Image-load validation before critique

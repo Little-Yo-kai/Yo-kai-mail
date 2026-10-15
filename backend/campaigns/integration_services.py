@@ -210,7 +210,7 @@ def promote_campaign_assets(
 
     with transaction.atomic():
         locked = (
-            Campaign.objects.select_for_update()
+            Campaign.objects.select_for_update(of=("self",))
             .select_related("active_design")
             .get(pk=campaign.pk)
         )
@@ -289,6 +289,7 @@ def revise_campaign_design(
             reference=campaign.reference,
             content_plan=campaign.content_plan,
             fact_ledger=campaign.fact_ledger,
+            asset_inventory=campaign.asset_inventory,
             email_design=campaign.active_design.email_design,
             instruction=instruction,
         )
@@ -302,7 +303,7 @@ def revise_campaign_design(
 
     with transaction.atomic():
         locked = (
-            Campaign.objects.select_for_update()
+            Campaign.objects.select_for_update(of=("self",))
             .select_related("active_design")
             .get(pk=campaign.pk)
         )
@@ -361,7 +362,7 @@ def resolve_campaign_audience(
         )
 
     with transaction.atomic():
-        locked = Campaign.objects.select_for_update().get(pk=campaign.pk)
+        locked = Campaign.objects.select_for_update(of=("self",)).get(pk=campaign.pk)
         if locked.status != CampaignStatus.READY:
             raise CampaignIntegrationError(
                 "Campaign changed while the audience was being resolved."
@@ -410,7 +411,7 @@ def queue_campaign_delivery(
 
     with transaction.atomic():
         campaign = (
-            Campaign.objects.select_for_update()
+            Campaign.objects.select_for_update(of=("self",))
             .select_related("active_design")
             .get(pk=campaign.pk)
         )
@@ -489,7 +490,7 @@ def queue_campaign_delivery(
             )
     except Exception:
         with transaction.atomic():
-            failed = Campaign.objects.select_for_update().get(pk=campaign.pk)
+            failed = Campaign.objects.select_for_update(of=("self",)).get(pk=campaign.pk)
             if failed.status in {
                 CampaignStatus.SCHEDULED,
                 CampaignStatus.SENDING,
