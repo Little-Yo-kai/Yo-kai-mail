@@ -8,6 +8,8 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.provider_errors import is_provider_rate_limited
+
 from .serializers import DemoGenerateSerializer
 from .service import DemoGenerationError, generate_phase1_demo
 
@@ -58,13 +60,8 @@ class DemoGenerateView(APIView):
             if settings.DEBUG and exc.details:
                 payload["details"] = exc.details
 
-            detail_text = (exc.details or "").lower()
             response_status = status.HTTP_502_BAD_GATEWAY
-            if (
-                "rate limit" in detail_text
-                or "too_many_requests" in detail_text
-                or "error code: 429" in detail_text
-            ):
+            if is_provider_rate_limited(exc, details=exc.details):
                 response_status = status.HTTP_429_TOO_MANY_REQUESTS
 
             return Response(
