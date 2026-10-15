@@ -55,8 +55,10 @@ def validate_email_design_contract(
         )
 
     if version == "1.0":
+        # Pydantic emits empty default collections when a legacy EmailDesign
+        # model is serialized. Only populated v1.1 features are forbidden.
         for field in ("alternative_subjects", "content_variants"):
-            if field in raw:
+            if raw.get(field):
                 raise EmailDesignContractError(
                     f"{field} requires EmailDesign schema version 1.1."
                 )
