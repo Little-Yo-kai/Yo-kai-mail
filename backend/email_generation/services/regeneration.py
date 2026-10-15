@@ -10,7 +10,7 @@ from brand_intelligence.schemas import BrandProfile
 from reference_design.schemas import ReferenceDesignSpec
 
 from ..builders import normalize_email_design
-from ..schemas import AssetDescriptor, ContentPlan, EmailDesign, FactLedger
+from ..schemas import AssetDescriptor, ContentPlan, EmailDesign, EmailSection, FactLedger
 from .composer import EmailDesignGenerationError
 from .validation import EmailDesignContractError, validate_email_design_contract
 
@@ -95,16 +95,15 @@ class GeminiSectionRegenerator:
                 response_format={
                     "type": "text",
                     "mime_type": "application/json",
-                    "schema": EmailDesign.model_json_schema()[
-                        "$defs"
-                    ]["EmailSection"],
+                    # A standalone schema includes all nested CTA/style defs.
+                    "schema": EmailSection.model_json_schema(),
                 },
             )
             output_text = getattr(interaction, "output_text", None)
             if not output_text:
                 raise ValueError("Empty structured section output.")
             payload = json.loads(output_text)
-            regenerated = design.sections[0].__class__.model_validate(payload)
+            regenerated = EmailSection.model_validate(payload)
         except (ValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise EmailDesignGenerationError(
                 "Regenerated section did not satisfy the structured contract.",
