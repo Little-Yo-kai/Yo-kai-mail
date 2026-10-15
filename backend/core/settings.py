@@ -192,7 +192,7 @@ RESEND_TEST_SEND_ENABLED = env.bool(
 # these import paths without creating direct app-to-app model imports.
 CAMPAIGN_ASSET_PROMOTION_GATEWAY = env(
     'CAMPAIGN_ASSET_PROMOTION_GATEWAY',
-    default='',
+    default='assets.campaign_gateway.CampaignAssetGateway',
 )
 CAMPAIGN_DESIGN_REVISION_GATEWAY = env(
     'CAMPAIGN_DESIGN_REVISION_GATEWAY',
