@@ -136,15 +136,23 @@ def generate_phase1_demo(
         )
 
         report_stage(stage)
+        website_max_age_ms = max(0, settings.GENERATION_WEBSITE_CACHE_SECONDS) * 1000
         snapshot, timing = prepare(
             stage,
             {
                 "url": url,
-                "normalizer_version": 2,
+                "normalizer_version": 3,
+                "provider_max_age_ms": website_max_age_ms,
                 "formats": _WEBSITE_FORMATS,
                 "credential": fingerprint(settings.FIRECRAWL_API_KEY),
             },
-            lambda: build_website_snapshot(url, FirecrawlService().scrape(url)),
+            lambda: build_website_snapshot(
+                url,
+                FirecrawlService().scrape(
+                    url,
+                    max_age_ms=0 if refresh_website else website_max_age_ms,
+                ),
+            ),
             timeout=settings.GENERATION_WEBSITE_CACHE_SECONDS,
             refresh=refresh_website,
         )

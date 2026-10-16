@@ -664,6 +664,9 @@ Every request still composes a fresh email design. Cache keys include the exact
 inputs, provider-account fingerprint, model, prompt, schema, and builder version.
 Changing instructions invalidates the plan; changing a reference invalidates its
 analysis and plan. Refresh bypasses website, brand, and plan reuse together.
+Normal website requests bound Firecrawl's provider cache age to the configured
+website TTL; refresh sets its `maxAge` to zero so an older provider copy cannot
+silently defeat the refresh control.
 Exceptions are never cached, and returned objects are copied before use.
 
 Uploaded-reference analysis runs alongside website import/brand analysis, using

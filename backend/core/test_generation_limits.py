@@ -20,6 +20,16 @@ from website_intelligence.services.firecrawl import FirecrawlService
 
 
 class ProviderDeadlineTests(SimpleTestCase):
+    @patch("requests.post")
+    @override_settings(FIRECRAWL_API_KEY="test-key")
+    def test_refresh_bypasses_real_firecrawl_sdk_cache(self, post):
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"success": True, "data": {"markdown": "Fresh"}}
+        post.return_value = response
+        FirecrawlService().scrape("https://example.com", max_age_ms=0)
+        self.assertEqual(post.call_args.kwargs["json"]["maxAge"], 0)
+
     @patch("time.sleep")
     def test_real_sdk_does_not_hide_retry_after_sleeps_or_extra_attempts(self, sleep):
         requests_seen = []
