@@ -384,6 +384,31 @@ class FactLedgerTests(APITestCase):
 
 
 class GeminiEmailDesignComposerTests(APITestCase):
+    def test_layout_footer_labels_do_not_reach_recipients(self):
+        for body, expected in (
+            ("Louis Vuitton official utility footer.", "Louis Vuitton"),
+            ("Utility footer", "Louis Vuitton"),
+            ("Brand footer.", "Louis Vuitton"),
+            ("Contact our team for support.", "Contact our team for support."),
+        ):
+            with self.subTest(body=body):
+                design = sample_email_design()
+                footer = dict(design["sections"][0])
+                footer.update({"id": "footer", "type": "footer", "order": 3,
+                               "headline": None, "body": body, "asset_ids": [], "cta": None})
+                design["sections"].append(footer)
+                client = Mock()
+                client.interactions.create.return_value = SimpleNamespace(output_text=json.dumps(design))
+                result = GeminiEmailDesignComposer(client=client).compose(
+                    brand_profile=sample_brand_profile(), reference_design_spec=sample_reference_spec(),
+                    content_plan=sample_content_plan(),
+                    asset_inventory=[asset.model_dump(mode="json") for asset in build_asset_inventory(sample_brand_profile())],
+                    fact_ledger=sample_fact_ledger(),
+                )
+                footer = next(section for section in result["email_design"]["sections"] if section["type"] == "footer")
+                self.assertEqual(footer["body"], expected)
+                self.assertEqual(client.interactions.create.call_count, 1)
+
     def test_bare_feature_labels_use_approved_product_story_without_an_ai_retry(self):
         plan = sample_content_plan()
         approved_copy = "A compact handbag with a removable pouch."

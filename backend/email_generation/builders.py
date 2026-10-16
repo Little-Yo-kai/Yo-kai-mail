@@ -224,6 +224,18 @@ def normalize_email_design(
     seen_ids: set[str] = set()
     normalized_sections = []
 
+    def normalize_footer(section):
+        if section.type != "footer" or not isinstance(section.body, str):
+            return
+        # Reference descriptions describe layout, not recipient-facing copy.
+        # Replace only an entire structural label; preserve legal/contact text.
+        label = (
+            rf"^(?:{re.escape(fact_ledger.brand_name)}\s+)?"
+            r"(?:official\s+)?(?:(?:utility|brand|email)\s+)?footer[.!]?$"
+        )
+        if re.fullmatch(label, section.body.strip(), flags=re.IGNORECASE):
+            section.body = fact_ledger.brand_name
+
     for index, section in enumerate(
         sorted(design.sections, key=lambda item: item.order),
         start=1,
@@ -237,6 +249,7 @@ def normalize_email_design(
         ):
             continue
         section.order = index
+        normalize_footer(section)
 
         if section.id in seen_ids:
             candidate_id = f"{section.type}_{index}"
@@ -284,6 +297,7 @@ def normalize_email_design(
             start=1,
         ):
             section.order = index
+            normalize_footer(section)
             section.asset_ids = [
                 asset_id
                 for asset_id in section.asset_ids

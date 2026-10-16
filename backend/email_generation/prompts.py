@@ -69,6 +69,9 @@ Rules:
    product feature must contain a short, useful sentence based on FactLedger,
    rather than vague labels. Put the primary CTA on the hero as well as the
    final action. Use a photograph at most once. Avoid repetitive feature lists.
+   All copy must be ready for recipients. Never copy reference layout labels
+   such as "utility footer" into the email; use the brand name when no verified
+   footer information is supplied. Preserve supplied legal/contact content.
 1. Follow ContentPlan for strategy. Do not invent a different campaign angle.
 2. Follow FactLedger for concrete factual claims. You may paraphrase supported
    facts, but you must not introduce unsupported features, materials, prices,
