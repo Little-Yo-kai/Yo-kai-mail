@@ -1,14 +1,19 @@
+import logging
+
+from brand_intelligence.services.gemini import GeminiBrandService
+from core.generation_budget import report_stage, with_generation_budget
 from email_generation.services.composer import GeminiEmailDesignComposer
 from email_generation.services.gemini import GeminiCampaignStrategist
 from email_rendering.compiler import compile_mjml_to_html
 from email_rendering.renderer import render_email_to_mjml
 from reference_design.services.gemini import GeminiReferenceDesignService
 from reference_library.selector import select_reference
-from brand_intelligence.services.gemini import GeminiBrandService
 from website_intelligence.normalizers import build_website_snapshot
 from website_intelligence.services.firecrawl import FirecrawlService
 
 from .preview import build_preview_html
+
+logger = logging.getLogger(__name__)
 
 
 class DemoGenerationError(RuntimeError):
@@ -61,6 +66,7 @@ def _default_campaign_brief(
     }
 
 
+@with_generation_budget
 def generate_phase1_demo(
     *,
     url: str,
@@ -70,10 +76,12 @@ def generate_phase1_demo(
     stage = "website_import"
 
     try:
+        report_stage(stage)
         raw_data = FirecrawlService().scrape(url)
         snapshot = build_website_snapshot(url, raw_data)
 
         stage = "brand_analysis"
+        report_stage(stage)
         brand_profile = GeminiBrandService().analyze(snapshot)
 
         campaign_brief = _default_campaign_brief(
@@ -83,6 +91,7 @@ def generate_phase1_demo(
         )
 
         stage = "reference_selection"
+        report_stage(stage)
         if reference_image is not None:
             reference_design_spec = GeminiReferenceDesignService().analyze(
                 reference_image
@@ -97,21 +106,18 @@ def generate_phase1_demo(
                 brand_profile,
                 campaign_brief,
             )
-            reference_design_spec = selected_reference[
-                "reference_design_spec"
-            ]
+            reference_design_spec = selected_reference["reference_design_spec"]
             reference = {
                 "source": "internal_library",
                 "reference_id": selected_reference["reference_id"],
                 "name": selected_reference["name"],
                 "recipe_family": selected_reference["recipe_family"],
-                "selection_reasons": selected_reference[
-                    "selection_reasons"
-                ],
+                "selection_reasons": selected_reference["selection_reasons"],
                 "reference_design_spec": reference_design_spec,
             }
 
         stage = "content_plan"
+        report_stage(stage)
         plan_result = GeminiCampaignStrategist().plan(
             brand_profile=brand_profile,
             campaign_brief=campaign_brief,
@@ -119,6 +125,7 @@ def generate_phase1_demo(
         )
 
         stage = "email_design"
+        report_stage(stage)
         design_result = GeminiEmailDesignComposer().compose(
             brand_profile=brand_profile,
             reference_design_spec=reference_design_spec,
@@ -128,23 +135,35 @@ def generate_phase1_demo(
         )
 
         stage = "render"
+        report_stage(stage)
         render_result = render_email_to_mjml(
             brand_profile=brand_profile,
             email_design=design_result["email_design"],
             asset_inventory=design_result["asset_inventory"],
         )
-        compile_result = compile_mjml_to_html(
-            render_result["mjml"]
-        )
+        compile_result = compile_mjml_to_html(render_result["mjml"])
 
-        (
-            preview_html,
-            preview_asset_diagnostics,
-            cached_assets,
-        ) = build_preview_html(
-            html_document=compile_result["html"],
-            asset_inventory=design_result["asset_inventory"],
-        )
+        # Preview embedding is optional. A cache failure must not discard
+        # the valid HTML that has already been generated and compiled.
+        stage = "preview_assets"
+        try:
+            report_stage(stage)
+            preview_html, preview_asset_diagnostics, cached_assets = build_preview_html(
+                html_document=compile_result["html"],
+                asset_inventory=design_result["asset_inventory"],
+            )
+        except Exception:
+            logger.warning(
+                "Preview embedding failed; returning compiled email", exc_info=True
+            )
+            preview_html = compile_result["html"]
+            preview_asset_diagnostics = [
+                {
+                    "status": "unavailable",
+                    "reason": "Preview images could not be cached. Original image URLs are retained.",
+                }
+            ]
+            cached_assets = []
 
         return {
             "mode": (

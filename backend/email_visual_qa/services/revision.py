@@ -2,6 +2,7 @@ import json
 
 from django.conf import settings
 from google import genai
+from core.gemini_client import create_gemini_client
 from pydantic import ValidationError
 
 from brand_intelligence.schemas import BrandProfile
@@ -56,7 +57,7 @@ class GeminiEmailDesignReviser:
                 raise DesignCriticNotConfiguredError(
                     "GEMINI_API_KEY is not configured."
                 )
-            self.client = genai.Client(api_key=api_key)
+            self.client = create_gemini_client(api_key=api_key, client_factory=genai.Client)
 
         self.critic = critic or GeminiDesignCritic(client=self.client)
 

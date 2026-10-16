@@ -108,3 +108,5 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Build and type-check
         run: npm run build
+      - name: Generation stream regression tests
+        run: npm test

@@ -22,6 +22,23 @@ uv run python manage.py runserver
 Configure Firecrawl and Gemini credentials in `backend/.env` for generation.
 For actual email delivery, also configure Resend and a verified sender.
 
+The generation page shows live stages and elapsed time, with a cancel button.
+The default overall limit is four minutes (`DEMO_GENERATION_TIMEOUT_SECONDS`);
+Firecrawl requests are limited to 40 seconds and each Gemini attempt to 60
+seconds, clamped to the remaining generation time. Firecrawl's long automatic
+resume and Gemini's hidden SDK retries are disabled. The shared Gemini fallback
+handles 429/503 capacity errors with bounded attempts. Preview image caching has
+an eight-second budget and cannot discard a successfully compiled email.
+
+`POST /api/demo/generate/` retains its JSON response. The page uses
+`POST /api/demo/generate/stream/` for newline-delimited JSON events: `started`,
+`progress`, `heartbeat`, then `result` or `error`. Streaming errors carry their
+own `status`, `code`, `stage`, and `request_id` because HTTP headers have already
+been sent. Logs include the request ID for failures and stage durations. Keep
+proxy buffering disabled for this route and allow the configured generation
+duration in server/proxy timeouts. Cancelled requests stop before the next stage;
+an in-flight provider call finishes or times out before its worker slot is freed.
+
 From `frontend/`, run `npm ci` and `npm run dev`. Open
 <http://localhost:3000> for the generation demo or
 <http://localhost:3000/contacts> for the authenticated contacts workspace.
@@ -56,6 +73,8 @@ visual campaign editor remains a separate feature.
 GitHub Actions validates backend checks, migrations, OpenAPI, and regression
 tests on SQLite and PostgreSQL, plus the frontend production build. It also
 executes the real MJML compiler and desktop/mobile screenshot smoke checks.
+Frontend `npm test` covers streamed responses, provider failures, interrupted
+connections, gateway errors, and upload validation messages.
 
 Local checks from `backend/`:
 

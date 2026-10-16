@@ -3,6 +3,7 @@ import json
 
 from django.conf import settings
 from google import genai
+from core.gemini_client import create_gemini_client
 from pydantic import ValidationError
 
 from core.ai_fallback import call_with_model_fallback
@@ -27,7 +28,7 @@ class GeminiSectionRegenerator:
                 "GEMINI_API_KEY is not configured.",
                 reason="Generation request failed",
             )
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        self.client = create_gemini_client(api_key=settings.GEMINI_API_KEY, client_factory=genai.Client)
 
     def regenerate(
         self,
