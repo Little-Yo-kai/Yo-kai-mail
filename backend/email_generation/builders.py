@@ -399,4 +399,21 @@ def repair_email_design_payload(
                     f"{section_id}: restored CTA from approved strategy."
                 )
 
+        # Existing CTA objects can also omit their visible label. Recover
+        # only from approved strategy, never from invented model claims.
+        ctas = [section.get("cta")]
+        ctas.extend(
+            item.get("cta")
+            for item in section.get("items") or []
+            if isinstance(item, dict)
+        )
+        for cta in ctas:
+            if isinstance(cta, dict) and not _payload_has_text(cta.get("label")):
+                label = content_plan.cta_strategy.primary_action
+                if _payload_has_text(label):
+                    cta["label"] = label.strip()
+                    actions.append(
+                        f"{section_id}: restored CTA label from approved strategy."
+                    )
+
     return payload, actions

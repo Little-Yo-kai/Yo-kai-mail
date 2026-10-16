@@ -1,17 +1,25 @@
+from assets.services.ssrf import normalize_public_asset_url
+
+
 def _as_dict(value):
     return value if isinstance(value, dict) else {}
 
 
-def _public_image_urls(values):
+def _public_image_urls(values, base_url):
     if not isinstance(values, list):
         return []
 
-    return [
-        value
-        for value in values
-        if isinstance(value, str)
-        and value.startswith(("https://", "http://"))
-    ]
+    return list(dict.fromkeys(
+        url for value in values
+        if (url := normalize_public_asset_url(value, base_url))
+    ))
+
+
+def _first_image_url(base_url, *values):
+    return next((
+        url for value in values
+        if (url := normalize_public_asset_url(value, base_url))
+    ), None)
 
 
 def build_website_snapshot(requested_url: str, firecrawl_data: dict) -> dict:
@@ -26,16 +34,22 @@ def build_website_snapshot(requested_url: str, firecrawl_data: dict) -> dict:
     metadata = _as_dict(data.get("metadata"))
     branding = _as_dict(data.get("branding"))
     branding_images = _as_dict(branding.get("images"))
+    resolved_url = (
+        metadata.get("source_url")
+        or metadata.get("sourceURL")
+        or metadata.get("url")
+        or requested_url
+    )
+    asset_base_url = (
+        normalize_public_asset_url(resolved_url)
+        or normalize_public_asset_url(requested_url)
+    )
 
     return {
         "schema_version": "1.0",
         "source": {
             "requested_url": requested_url,
-            "resolved_url": (
-                metadata.get("source_url")
-                or metadata.get("url")
-                or requested_url
-            ),
+            "resolved_url": resolved_url,
             "title": metadata.get("title"),
             "description": metadata.get("description"),
             "language": metadata.get("language"),
@@ -48,19 +62,18 @@ def build_website_snapshot(requested_url: str, firecrawl_data: dict) -> dict:
             "screenshot": data.get("screenshot"),
         },
         "assets": {
-            "images": _public_image_urls(data.get("images")),
-            "logo_candidate": (
-                branding.get("logo")
-                or branding_images.get("logo")
+            "images": _public_image_urls(data.get("images"), asset_base_url),
+            "logo_candidate": _first_image_url(
+                asset_base_url, branding.get("logo"), branding_images.get("logo")
             ),
-            "favicon": (
-                branding_images.get("favicon")
-                or metadata.get("favicon")
+            "favicon": _first_image_url(
+                asset_base_url, branding_images.get("favicon"), metadata.get("favicon")
             ),
-            "og_image": (
-                branding_images.get("ogImage")
-                or metadata.get("og_image")
-                or metadata.get("og:image")
+            "og_image": _first_image_url(
+                asset_base_url,
+                branding_images.get("ogImage"),
+                metadata.get("og_image"),
+                metadata.get("og:image"),
             ),
         },
         "detected_branding": {

@@ -52,6 +52,7 @@ type DemoResponse = {
       }>;
       mjml: string;
       compiler_errors: unknown[];
+      warnings?: Array<{ code: string; message: string; section_id?: string }>;
       rendered_sections: number;
     };
   };
@@ -624,6 +625,15 @@ export default function Home() {
                   ? "MJML compiled to responsive HTML without compiler errors."
                   : "The compiler returned warnings that should be reviewed."}
               </p>
+              {!!result.render.warnings?.length && (
+                <ul aria-label="Review before sending">
+                  {result.render.warnings.map((warning, index) => (
+                    <li key={`${warning.code}-${warning.section_id ?? index}`}>
+                      {warning.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <div className="summary-card">

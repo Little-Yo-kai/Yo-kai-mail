@@ -196,3 +196,30 @@ Scheduling accepts a future ISO-8601 timestamp:
   a persisted campaign.
 - Open and click tracking counts depend on Resend configuration and events.
 - Do not use fake or unconsented addresses for real campaign sends.
+
+## Offline send checks
+
+Every Resend payload includes HTML plus plain text derived from that final HTML,
+including CTA/footer links and image alt text. Cached images use inline CID
+attachments. Other image sources must be public URLs (HTTPS outside DEBUG);
+unresolved local/data/CID sources fail before the provider call.
+
+Run `python manage.py test email_delivery.test_payloads email_delivery.tests`
+for mocked provider checks. No API credentials or external calls are needed.
+
+For a real MIME capture, start a local [Mailpit](https://github.com/axllent/mailpit)
+with its default SMTP `127.0.0.1:1025` and HTTP `127.0.0.1:8025` ports, without
+SMTP relay/forwarding. From `backend`, run in PowerShell:
+
+```powershell
+$env:YOKAI_MAILPIT_TEST='1'
+python manage.py test email_delivery.test_mailpit
+Remove-Item Env:YOKAI_MAILPIT_TEST
+```
+
+This test replaces only the Resend network transport with local SMTP, then reads
+Mailpit's captured MIME and HTML compatibility checks. It checks the generated
+text, links and embedded image bytes/CID association. It does not validate
+Resend's own MIME encoding or actual Gmail/Outlook rendering. Link checking is
+excluded because it would fetch fixture URLs. Mailpit remains a dev/test tool;
+production sending continues through Resend. The test skips unless opted in.

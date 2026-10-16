@@ -1,19 +1,24 @@
 import json
 
 from django.conf import settings
-from core.ai_fallback import call_with_model_fallback
 from google import genai
 from pydantic import ValidationError
 
 from brand_intelligence.schemas import BrandProfile
+from core.ai_fallback import call_with_model_fallback
+from core.timing import timed_stage
 from reference_design.schemas import ReferenceDesignSpec
 
 from ..builders import normalize_email_design, repair_email_design_payload
-from .validation import EmailDesignContractError, validate_email_design_contract
 from ..prompts import EMAIL_DESIGN_COMPOSER_PROMPT
 from ..schemas import AssetDescriptor, ContentPlan, EmailDesign, FactLedger
 from .gemini import (
     GeminiGenerationNotConfiguredError,
+)
+from .validation import (
+    EmailDesignContractError,
+    lint_email_design,
+    validate_email_design_contract,
 )
 
 
@@ -54,17 +59,18 @@ class GeminiEmailDesignComposer:
         self.client = genai.Client(api_key=api_key)
 
     def _request_design(self, prompt: str) -> str:
-        interaction = call_with_model_fallback(
-            self.client.interactions.create,
-            primary_model=settings.GEMINI_GENERATION_MODEL,
-            fallback_model=settings.GEMINI_FALLBACK_MODEL,
-            input=prompt,
-            response_format={
-                "type": "text",
-                "mime_type": "application/json",
-                "schema": EmailDesign.model_json_schema(),
-            },
-        )
+        with timed_stage("gemini_design"):
+            interaction = call_with_model_fallback(
+                self.client.interactions.create,
+                primary_model=settings.GEMINI_GENERATION_MODEL,
+                fallback_model=settings.GEMINI_FALLBACK_MODEL,
+                input=prompt,
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": EmailDesign.model_json_schema(),
+                },
+            )
 
         output_text = getattr(interaction, "output_text", None)
         if not output_text:
@@ -81,24 +87,25 @@ class GeminiEmailDesignComposer:
         content_plan: ContentPlan,
         fact_ledger: FactLedger,
     ) -> tuple[EmailDesign, list[str]]:
-        try:
-            payload = json.loads(output_text)
-        except json.JSONDecodeError:
-            return EmailDesign.model_validate_json(output_text), []
+        with timed_stage("email_design_validation"):
+            try:
+                payload = json.loads(output_text)
+            except json.JSONDecodeError:
+                return EmailDesign.model_validate_json(output_text), []
 
-        if not isinstance(payload, dict):
-            return EmailDesign.model_validate(payload), []
+            if not isinstance(payload, dict):
+                return EmailDesign.model_validate(payload), []
 
-        repaired_payload, recovery_actions = repair_email_design_payload(
-            payload,
-            content_plan=content_plan,
-            fact_ledger=fact_ledger,
-        )
+            repaired_payload, recovery_actions = repair_email_design_payload(
+                payload,
+                content_plan=content_plan,
+                fact_ledger=fact_ledger,
+            )
 
-        return (
-            EmailDesign.model_validate(repaired_payload),
-            recovery_actions,
-        )
+            return (
+                EmailDesign.model_validate(repaired_payload),
+                recovery_actions,
+            )
 
     @staticmethod
     def _repair_prompt(
@@ -238,11 +245,12 @@ class GeminiEmailDesignComposer:
             ) from exc
 
         try:
-            design = validate_email_design_contract(
-                design,
-                asset_inventory=assets,
-                fact_ledger=facts,
-            )
+            with timed_stage("email_design_validation"):
+                design = validate_email_design_contract(
+                    design,
+                    asset_inventory=assets,
+                    fact_ledger=facts,
+                )
         except EmailDesignContractError as exc:
             raise EmailDesignGenerationError(
                 "Generated EmailDesign failed application contract validation.",
@@ -253,6 +261,7 @@ class GeminiEmailDesignComposer:
         return {
             "email_design": design.model_dump(mode="json"),
             "recovery_actions": recovery_actions,
+            "warnings": lint_email_design(design),
             "asset_inventory": [
                 asset.model_dump(mode="json")
                 for asset in assets

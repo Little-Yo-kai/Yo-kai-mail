@@ -1,8 +1,14 @@
+import hashlib
 import json
 import subprocess
 from pathlib import Path
 
 from django.conf import settings
+from django.core.cache import cache
+
+from core.timing import timed_stage
+
+from .text import html_to_plain_text
 
 
 class MJMLCompilerError(RuntimeError):
@@ -15,17 +21,42 @@ def compile_mjml_to_html(mjml: str) -> dict:
     if not isinstance(mjml, str) or not mjml.strip():
         raise MJMLCompilerError("MJML input is empty.")
 
-    script_path = (
-        Path(settings.BASE_DIR)
-        / "mjml_runtime"
-        / "compile.mjs"
-    )
+    script_path = Path(settings.BASE_DIR) / "mjml_runtime" / "compile.mjs"
 
     if not script_path.exists():
         raise MJMLCompilerError(
             "MJML compiler runtime is missing.",
             details=str(script_path),
         )
+
+    # Invalidate on compiler, dependency lock or bridge changes, as well as input.
+    runtime_files = [script_path, script_path.with_name("package-lock.json")]
+    runtime_version = [
+        (str(path), path.stat().st_mtime_ns, path.stat().st_size)
+        for path in runtime_files
+        if path.exists()
+    ]
+    cache_key = (
+        "email_compile:v1:"
+        + hashlib.sha256(
+            json.dumps([settings.MJML_NODE_BINARY, runtime_version, mjml]).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+    )
+    ttl = getattr(settings, "MJML_COMPILE_CACHE_TTL_SECONDS", 900)
+    with timed_stage("compilation") as timing:
+        cached = cache.get(cache_key) if ttl > 0 else None
+        timing["cache_hit"] = cached is not None
+        if cached is not None:
+            return cached
+        compiled = _compile_uncached(mjml, script_path)
+        if ttl > 0:
+            cache.set(cache_key, compiled, ttl)
+        return compiled
+
+
+def _compile_uncached(mjml: str, script_path: Path) -> dict:
 
     try:
         result = subprocess.run(
@@ -67,15 +98,16 @@ def compile_mjml_to_html(mjml: str) -> dict:
             details=str(exc),
         ) from exc
 
+    if not isinstance(payload, dict):
+        raise MJMLCompilerError("MJML compiler returned invalid output.")
     html = payload.get("html")
     errors = payload.get("errors") or []
 
     if not isinstance(html, str) or not html.strip():
-        raise MJMLCompilerError(
-            "MJML compiler returned empty HTML."
-        )
+        raise MJMLCompilerError("MJML compiler returned empty HTML.")
 
     return {
         "html": html,
+        "text": html_to_plain_text(html),
         "compiler_errors": errors,
     }

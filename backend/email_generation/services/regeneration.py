@@ -5,12 +5,18 @@ from django.conf import settings
 from google import genai
 from pydantic import ValidationError
 
-from core.ai_fallback import call_with_model_fallback
 from brand_intelligence.schemas import BrandProfile
+from core.ai_fallback import call_with_model_fallback
+from core.timing import timed_stage
 from reference_design.schemas import ReferenceDesignSpec
 
 from ..builders import normalize_email_design
-from ..schemas import AssetDescriptor, ContentPlan, EmailDesign, EmailSection, FactLedger
+from ..schemas import (
+    AssetDescriptor,
+    ContentPlan,
+    EmailSection,
+    FactLedger,
+)
 from .composer import EmailDesignGenerationError
 from .validation import EmailDesignContractError, validate_email_design_contract
 
@@ -87,23 +93,25 @@ class GeminiSectionRegenerator:
         )
 
         try:
-            interaction = call_with_model_fallback(
-                self.client.interactions.create,
-                primary_model=settings.GEMINI_GENERATION_MODEL,
-                fallback_model=settings.GEMINI_FALLBACK_MODEL,
-                input=prompt,
-                response_format={
-                    "type": "text",
-                    "mime_type": "application/json",
-                    # A standalone schema includes all nested CTA/style defs.
-                    "schema": EmailSection.model_json_schema(),
-                },
-            )
+            with timed_stage("gemini_section"):
+                interaction = call_with_model_fallback(
+                    self.client.interactions.create,
+                    primary_model=settings.GEMINI_GENERATION_MODEL,
+                    fallback_model=settings.GEMINI_FALLBACK_MODEL,
+                    input=prompt,
+                    response_format={
+                        "type": "text",
+                        "mime_type": "application/json",
+                        # A standalone schema includes all nested CTA/style defs.
+                        "schema": EmailSection.model_json_schema(),
+                    },
+                )
             output_text = getattr(interaction, "output_text", None)
             if not output_text:
                 raise ValueError("Empty structured section output.")
-            payload = json.loads(output_text)
-            regenerated = EmailSection.model_validate(payload)
+            with timed_stage("email_section_validation"):
+                payload = json.loads(output_text)
+                regenerated = EmailSection.model_validate(payload)
         except (ValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise EmailDesignGenerationError(
                 "Regenerated section did not satisfy the structured contract.",

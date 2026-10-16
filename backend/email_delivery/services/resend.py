@@ -5,13 +5,38 @@ import re
 import resend
 from django.conf import settings
 
+from assets.services.ssrf import normalize_public_asset_url
+from core.timing import timed_stage
 from email_assets.temp_cache import (
+    MIME_EXTENSIONS,
     EmailAssetCacheError,
     read_cached_email_asset,
 )
+from email_rendering.text import html_to_plain_text
+
+IMAGE_TAG_PATTERN = re.compile(
+    r'''<img\b(?:[^>"']|"[^"]*"|'[^']*')*>''', re.IGNORECASE,
+)
+ATTRIBUTE_PATTERN = re.compile(
+    r'''\s+([^\s"'<>/=`]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+)))?''',
+)
 
 
-IMAGE_SRC_PATTERN = re.compile(r'src="([^"]+)"', re.IGNORECASE)
+def _image_sources(html_document: str):
+    """Yield source spans while preserving the rest of the compiled HTML."""
+    for tag_match in IMAGE_TAG_PATTERN.finditer(html_document):
+        for attribute in ATTRIBUTE_PATTERN.finditer(tag_match.group(0)):
+            if attribute.group(1).lower() != "src":
+                continue
+            for group in (2, 3, 4):
+                if attribute.group(group) is not None:
+                    start, end = attribute.span(group)
+                    yield (
+                        tag_match.start() + start,
+                        tag_match.start() + end,
+                        html_lib.unescape(attribute.group(group)),
+                    )
+                    break
 
 
 class ResendNotConfiguredError(RuntimeError):
@@ -48,10 +73,8 @@ def _prepare_inline_assets(
     html_document: str,
     cached_asset_refs: list[dict],
 ) -> tuple[str, list[dict], list[dict]]:
-    source_urls = {
-        html_lib.unescape(match.group(1))
-        for match in IMAGE_SRC_PATTERN.finditer(html_document)
-    }
+    sources = list(_image_sources(html_document))
+    source_urls = {source_url for _, _, source_url in sources}
 
     replacement_map: dict[str, str] = {}
     attachments: list[dict] = []
@@ -80,6 +103,10 @@ def _prepare_inline_assets(
         cid = attachment_by_cache_key.get(cache_key)
 
         if cid is None:
+            if len(attachments) >= settings.EMAIL_ASSET_MAX_INLINE_COUNT:
+                raise ResendDeliveryError("Too many inline email images.")
+            if cached.mime_type not in MIME_EXTENSIONS or not cached.body:
+                raise ResendDeliveryError("Cached email asset is not a supported image.")
             total_bytes += len(cached.body)
             if total_bytes > settings.EMAIL_ASSET_MAX_INLINE_BYTES:
                 raise ResendDeliveryError(
@@ -112,16 +139,23 @@ def _prepare_inline_assets(
             }
         )
 
-    def replace_src(match):
-        raw_value = match.group(1)
-        decoded_value = html_lib.unescape(raw_value)
-        replacement = replacement_map.get(decoded_value)
+    parts: list[str] = []
+    cursor = 0
+    for start, end, source_url in sources:
+        replacement = replacement_map.get(source_url)
         if not replacement:
-            return match.group(0)
-        return f'src="{replacement}"'
-
-    delivery_html = IMAGE_SRC_PATTERN.sub(replace_src, html_document)
-    return delivery_html, attachments, inline_manifest
+            normalized_url = normalize_public_asset_url(source_url)
+            if not normalized_url or (
+                not settings.DEBUG and not normalized_url.startswith("https://")
+            ):
+                raise ResendDeliveryError(
+                    "Email image must use a public HTTPS URL or a cached inline asset.",
+                )
+            replacement = html_lib.escape(normalized_url, quote=True)
+        parts.extend((html_document[cursor:start], replacement))
+        cursor = end
+    parts.append(html_document[cursor:])
+    return "".join(parts), attachments, inline_manifest
 
 
 class ResendEmailService:
@@ -165,6 +199,7 @@ class ResendEmailService:
             "to": [to],
             "subject": subject,
             "html": delivery_html,
+            "text": html_to_plain_text(delivery_html),
         }
 
         if attachments:
@@ -174,10 +209,11 @@ class ResendEmailService:
             options: resend.Emails.SendOptions = {
                 "idempotency_key": key,
             }
-            response = resend.Emails.send(
-                params,
-                options,
-            )
+            with timed_stage("send", provider="resend"):
+                response = resend.Emails.send(
+                    params,
+                    options,
+                )
         except Exception as exc:
             status_code = getattr(exc, "status_code", None)
             if not isinstance(status_code, int):
