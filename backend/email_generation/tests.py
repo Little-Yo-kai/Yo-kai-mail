@@ -4,9 +4,9 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 from django.urls import reverse
+from pydantic import ValidationError
 from rest_framework import status
 from rest_framework.test import APITestCase
-from pydantic import ValidationError
 
 from .builders import build_asset_inventory, build_fact_ledger
 from .schemas import EmailDesign
@@ -467,6 +467,42 @@ class GeminiEmailDesignComposerTests(APITestCase):
             "https://example.com/product",
         )
         self.assertGreaterEqual(len(result["recovery_actions"]), 2)
+
+    @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
+    def test_version_is_updated_for_populated_variant_fields(self):
+        design = sample_email_design()
+        design["schema_version"] = "1.0"
+        design["alternative_subjects"] = ["A different subject"]
+
+        client = Mock()
+        client.interactions.create.return_value = SimpleNamespace(
+            output_text=json.dumps(design)
+        )
+
+        result = GeminiEmailDesignComposer(client=client).compose(
+            brand_profile=sample_brand_profile(),
+            reference_design_spec=sample_reference_spec(),
+            content_plan=sample_content_plan(),
+            asset_inventory=[
+                asset.model_dump(mode="json")
+                for asset in build_asset_inventory(
+                    sample_brand_profile()
+                )
+            ],
+            fact_ledger=sample_fact_ledger(),
+        )
+
+        self.assertEqual(client.interactions.create.call_count, 1)
+        self.assertEqual(
+            result["email_design"]["schema_version"],
+            "1.1",
+        )
+        self.assertTrue(
+            any(
+                "schema_version to 1.1" in action
+                for action in result["recovery_actions"]
+            )
+        )
 
     @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
     def test_unrecoverable_design_gets_one_bounded_repair_attempt(self):

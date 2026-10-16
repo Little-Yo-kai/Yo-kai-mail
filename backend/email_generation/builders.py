@@ -42,7 +42,7 @@ def build_asset_inventory(
             candidate = dict(item)
             candidate.setdefault("source", "request")
             asset = AssetDescriptor.model_validate(candidate)
-        except Exception:
+        except (TypeError, ValueError):
             continue
 
         _append_asset(
@@ -307,6 +307,21 @@ def repair_email_design_payload(
         return payload, []
 
     actions: list[str] = []
+
+    has_version_1_1_content = any(
+        isinstance(payload.get(field), list) and bool(payload.get(field))
+        for field in ("alternative_subjects", "content_variants")
+    )
+    if (
+        has_version_1_1_content
+        and payload.get("schema_version", "1.0") == "1.0"
+    ):
+        payload["schema_version"] = "1.1"
+        actions.append(
+            "Updated EmailDesign schema_version to 1.1 for populated "
+            "variant fields."
+        )
+
     beats_by_section_type: dict[str, list] = {}
 
     for beat in sorted(
@@ -373,12 +388,10 @@ def repair_email_design_payload(
                 message = trusted_message(section_type)
                 if message:
                     section["body"] = message
-                    actions.append(
-                        (
-                            f"{section_id}: restored {section_type} body "
-                            "from ContentPlan."
-                        )
-                    )
+                actions.append(
+                    f"{section_id}: restored {section_type} body "
+                    "from ContentPlan."
+                )
 
         if section_type == "cta" and not isinstance(
             section.get("cta"),
