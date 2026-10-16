@@ -13,7 +13,6 @@ from pydantic import ValidationError
 
 from ..schemas import AssetDescriptor, EmailDesign, FactLedger
 
-
 SUPPORTED_EMAIL_DESIGN_VERSIONS = {"1.0", "1.1"}
 CURRENT_EMAIL_DESIGN_VERSION = "1.1"
 
@@ -22,11 +21,23 @@ class EmailDesignContractError(ValueError):
     """Raised when an EmailDesign cannot be safely consumed downstream."""
 
 
-def _valid_http_url(value: str | None) -> bool:
+def is_valid_http_url(value: str | None) -> bool:
     if not isinstance(value, str) or not value.strip():
         return False
-    parsed = urlparse(value.strip())
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    if "\\" in value or any(character.isspace() or ord(character) < 32 for character in value):
+        return False
+    try:
+        parsed = urlparse(value)
+        # Accessing port/hostname also rejects malformed bracketed hosts/ports.
+        _ = parsed.port
+        return (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+        )
+    except ValueError:
+        return False
 
 
 def validate_email_design_contract(
@@ -143,7 +154,7 @@ def _validate_sections(sections, allowed_asset_ids: set[str], facts: FactLedger)
             )
 
         if section.cta is not None:
-            _validate_cta(section.cta.url, facts, section.id)
+            _validate_cta(section.cta, facts, section.id)
 
         for item in section.items:
             if item.asset_id is not None and item.asset_id not in allowed_asset_ids:
@@ -152,11 +163,16 @@ def _validate_sections(sections, allowed_asset_ids: set[str], facts: FactLedger)
                     f"{item.asset_id!r}."
                 )
             if item.cta is not None:
-                _validate_cta(item.cta.url, facts, section.id)
+                _validate_cta(item.cta, facts, section.id)
 
 
-def _validate_cta(url: str | None, facts: FactLedger, section_id: str) -> None:
-    if not _valid_http_url(url):
+def _validate_cta(cta, facts: FactLedger, section_id: str) -> None:
+    if not cta.label.strip():
+        raise EmailDesignContractError(
+            f"CTA label in section {section_id!r} must not be blank."
+        )
+    url = cta.url
+    if not is_valid_http_url(url):
         raise EmailDesignContractError(
             f"CTA URL in section {section_id!r} must be a valid HTTP(S) URL."
         )
@@ -167,3 +183,42 @@ def _validate_cta(url: str | None, facts: FactLedger, section_id: str) -> None:
             f"CTA URL in section {section_id!r} does not match the "
             "authoritative campaign destination."
         )
+
+
+def lint_email_design(design: EmailDesign) -> list[dict[str, str]]:
+    """Nonblocking email quality checks; never invent missing brand/legal facts."""
+    warnings: list[dict[str, str]] = []
+
+    def warn(code: str, message: str, section_id: str | None = None) -> None:
+        warning = {"code": code, "severity": "warning", "message": message}
+        if section_id is not None:
+            warning["section_id"] = section_id
+        warnings.append(warning)
+
+    if not design.preheader.strip():
+        warn("missing-preheader", "Add a preheader for the inbox preview.")
+    footers = [section for section in design.sections if section.type == "footer"]
+    if not footers:
+        warn("missing-footer", "Add a marketing footer with your verified mailing address and unsubscribe link before sending.")
+    elif not any("unsubscribe" in (section.body or "").lower() for section in footers):
+        warn("review-marketing-footer", "Verify the footer contains your mailing address and a working unsubscribe link before marketing delivery.")
+
+    has_cta = False
+    for section in design.sections:
+        if section.asset_ids and not (section.headline or "").strip():
+            warn("missing-alt", "Image has no descriptive headline to use as alternative text.", section.id)
+        for item in section.items:
+            if item.asset_id and not (item.title or "").strip():
+                warn("missing-alt", "Item image has no descriptive title to use as alternative text.", section.id)
+        for cta in [section.cta, *(item.cta for item in section.items)]:
+            if cta is None:
+                continue
+            if not cta.label.strip():
+                warn("empty-button", "CTA has no readable label.", section.id)
+            if not is_valid_http_url(cta.url):
+                warn("missing-href", "CTA has no valid HTTP(S) destination and will be omitted.", section.id)
+            elif cta.label.strip():
+                has_cta = True
+    if not has_cta:
+        warn("missing-cta", "Add a labeled CTA with an approved destination.")
+    return warnings

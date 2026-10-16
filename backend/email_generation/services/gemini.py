@@ -1,10 +1,12 @@
 import json
 
 from django.conf import settings
-from core.ai_fallback import call_with_model_fallback
 from google import genai
 from core.gemini_client import create_gemini_client
 from pydantic import ValidationError
+
+from core.ai_fallback import call_with_model_fallback
+from core.timing import timed_stage
 
 from ..builders import (
     build_asset_inventory,
@@ -75,17 +77,18 @@ class GeminiCampaignStrategist:
         )
 
         try:
-            interaction = call_with_model_fallback(
-                self.client.interactions.create,
-                primary_model=settings.GEMINI_GENERATION_MODEL,
-                fallback_model=settings.GEMINI_FALLBACK_MODEL,
-                input=prompt,
-                response_format={
-                    "type": "text",
-                    "mime_type": "application/json",
-                    "schema": ContentPlan.model_json_schema(),
-                },
-            )
+            with timed_stage("gemini_strategy"):
+                interaction = call_with_model_fallback(
+                    self.client.interactions.create,
+                    primary_model=settings.GEMINI_GENERATION_MODEL,
+                    fallback_model=settings.GEMINI_FALLBACK_MODEL,
+                    input=prompt,
+                    response_format={
+                        "type": "text",
+                        "mime_type": "application/json",
+                        "schema": ContentPlan.model_json_schema(),
+                    },
+                )
 
             output_text = getattr(interaction, "output_text", None)
             if not output_text:
@@ -93,12 +96,13 @@ class GeminiCampaignStrategist:
                     "Gemini returned an empty ContentPlan."
                 )
 
-            plan = ContentPlan.model_validate_json(output_text)
-            plan = normalize_content_plan(
-                plan,
-                campaign_brief=campaign_brief,
-                asset_inventory=asset_inventory,
-            )
+            with timed_stage("content_plan_validation"):
+                plan = ContentPlan.model_validate_json(output_text)
+                plan = normalize_content_plan(
+                    plan,
+                    campaign_brief=campaign_brief,
+                    asset_inventory=asset_inventory,
+                )
         except ContentPlanGenerationError:
             raise
         except (ValidationError, ValueError, TypeError) as exc:

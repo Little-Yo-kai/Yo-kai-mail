@@ -1,0 +1,301 @@
+{
+  "url": "https://example.com/product",
+  "scraped": {
+    "markdown": "# Example\nDiscover the collection.",
+    "metadata": {
+      "sourceURL": "https://example.com/product",
+      "title": "Example",
+      "statusCode": 200
+    },
+    "images": [
+      "/hero.jpg"
+    ],
+    "branding": {
+      "brandName": "Example",
+      "colors": {
+        "primary": "#111111"
+      }
+    }
+  },
+  "brand_profile": {
+    "schema_version": "1.0",
+    "identity": {
+      "name": "Louis Vuitton",
+      "industry": "Luxury Fashion & Leather Goods"
+    },
+    "visual": {
+      "colors": {
+        "primary": "#000000",
+        "secondary": "#1A1A1A",
+        "accent": null,
+        "background": null,
+        "text_primary": "#1A1A1A"
+      },
+      "typography": {
+        "heading_family": "Louis Vuitton Web",
+        "body_family": null
+      }
+    },
+    "communication": {
+      "tone": [
+        "luxurious",
+        "sophisticated",
+        "refined",
+        "exclusive"
+      ],
+      "copy_characteristics": {
+        "sentence_length": "medium",
+        "emoji_usage": "none",
+        "formality": "high"
+      }
+    },
+    "assets": {
+      "primary_logo": "https://example.com/logo.svg",
+      "og_image": "https://example.com/product.jpg",
+      "hero_candidates": [
+        "https://example.com/product.jpg",
+        "https://example.com/detail.jpg"
+      ]
+    },
+    "confidence": 0.95
+  },
+  "campaign_brief": {
+    "schema_version": "1.0",
+    "campaign_type": "product_launch",
+    "goal": "product_discovery",
+    "audience": {
+      "description": "Existing luxury customers interested in handbags"
+    },
+    "offer": {
+      "type": "none",
+      "value": null,
+      "code": null,
+      "details": null
+    },
+    "product": {
+      "name": "Speedy Bandouliere 20",
+      "url": "https://example.com/product",
+      "description": "A compact handbag."
+    },
+    "destination_url": "https://example.com/product",
+    "additional_instructions": "Keep the campaign restrained."
+  },
+  "reference_design_spec": {
+    "schema_version": "1.0",
+    "archetype": "Luxury Editorial Product Launch",
+    "summary": "Restrained image-led product launch.",
+    "visual_hierarchy": {
+      "hero_dominance": "very_high",
+      "image_to_text_balance": "image_heavy",
+      "density": "low",
+      "primary_alignment": "center"
+    },
+    "section_sequence": [
+      {
+        "order": 1,
+        "type": "hero",
+        "purpose": "Establish aspiration.",
+        "layout": "Large editorial image.",
+        "alignment": "center",
+        "image_usage": "dominant",
+        "copy_role": "emotional_hook"
+      }
+    ],
+    "copy_formula": [
+      "aspirational_hook"
+    ],
+    "cta_style": {
+      "frequency": "low",
+      "placement_pattern": "After persuasion.",
+      "shape": "rectangular",
+      "emphasis": "medium"
+    },
+    "spacing_rhythm": {
+      "overall": "very_generous",
+      "section_separation": "strong"
+    },
+    "design_rules": {
+      "background_strategy": "Neutral.",
+      "color_usage": "Restrained.",
+      "typography_behavior": "Editorial.",
+      "image_treatment": "Image-led.",
+      "mobile_behavior": "Stack."
+    },
+    "reusable_principles": [
+      "Use restraint as a premium signal."
+    ],
+    "brand_specific_elements_to_ignore": [],
+    "confidence": 1.0
+  },
+  "content_plan": {
+    "schema_version": "1.0",
+    "campaign_angle": "An icon, considered anew",
+    "strategic_rationale": "Use restraint and product detail to support deliberate discovery.",
+    "audience_focus": "Existing luxury customers seeking a compact handbag.",
+    "primary_message": "Present the product as a refined evolution.",
+    "supporting_messages": [
+      "Focus on form and product detail.",
+      "Keep the story concise."
+    ],
+    "subject_line_angles": [
+      "Icon evolution",
+      "Craft-focused discovery"
+    ],
+    "preheader_direction": "Support the subject with concise product context.",
+    "content_hierarchy": [
+      {
+        "order": 1,
+        "role": "emotional_hook",
+        "objective": "Establish product desirability.",
+        "key_message": "Lead with the product as the visual focus.",
+        "recommended_section_type": "hero",
+        "preferred_asset_role": "hero"
+      },
+      {
+        "order": 2,
+        "role": "cta",
+        "objective": "Invite product discovery.",
+        "key_message": "Offer one deliberate next step.",
+        "recommended_section_type": "cta",
+        "preferred_asset_role": "none"
+      }
+    ],
+    "cta_strategy": {
+      "primary_action": "Discover the product",
+      "destination_url": "https://hallucinated.example/bad",
+      "frequency": "low",
+      "placement_strategy": "After the main product story.",
+      "tone": "understated"
+    },
+    "copy_strategy": {
+      "tone": [
+        "luxurious",
+        "refined"
+      ],
+      "density": "low",
+      "sentence_style": "Short editorial sentences.",
+      "emphasis_style": "Use restrained, product-led emphasis.",
+      "avoid": [
+        "unsupported superlatives"
+      ]
+    },
+    "asset_strategy": [
+      {
+        "purpose": "Primary hero",
+        "preferred_kind": "hero",
+        "candidate_asset_ids": [
+          "hero_1",
+          "made_up_asset"
+        ],
+        "required": true
+      }
+    ],
+    "reference_adaptation": {
+      "principles_to_preserve": [
+        "Use restraint as a premium signal."
+      ],
+      "elements_to_avoid_copying": [],
+      "adaptation_notes": [
+        "Use the target brand's identity and product."
+      ]
+    },
+    "claim_constraints": [
+      "Do not invent materials, prices, or availability."
+    ]
+  },
+  "fact_ledger": {
+    "brand_name": "Louis Vuitton",
+    "product_name": "Speedy Bandouliere 20",
+    "verified_facts": [
+      "Brand: Louis Vuitton",
+      "Product name: Speedy Bandouliere 20",
+      "Product description evidence: A compact handbag."
+    ],
+    "offer_facts": [],
+    "authoritative_destination_url": "https://example.com/product",
+    "forbidden_claim_categories": [
+      "price unless explicitly present in the campaign brief",
+      "availability or stock status unless explicitly present",
+      "deadlines or urgency unless explicitly present",
+      "discounts or promotions unless explicitly present",
+      "materials, dimensions, features, or craftsmanship details beyond provided evidence",
+      "statistics, guarantees, certifications, awards, or testimonials not provided"
+    ]
+  },
+  "email_design": {
+    "schema_version": "1.0",
+    "subject": "An icon, considered anew",
+    "preheader": "Discover the Speedy Bandouliere 20.",
+    "theme": {
+      "content_width": "standard",
+      "heading_font_role": "brand_heading",
+      "body_font_role": "brand_body",
+      "primary_color_role": "text_primary",
+      "background_color_role": "background",
+      "button_color_role": "text_primary"
+    },
+    "sections": [
+      {
+        "id": "hero",
+        "order": 1,
+        "type": "hero",
+        "layout": "full_width",
+        "eyebrow": "Speedy Bandouliere 20",
+        "headline": "An Icon, Reimagined",
+        "body": "A compact expression in Monogram Empreinte leather.",
+        "asset_ids": [
+          "og_image"
+        ],
+        "items": [],
+        "cta": null,
+        "style": {
+          "alignment": "center",
+          "spacing": "very_generous",
+          "background_role": "brand_background"
+        }
+      },
+      {
+        "id": "cta_2",
+        "order": 2,
+        "type": "cta",
+        "layout": "minimal",
+        "eyebrow": null,
+        "headline": null,
+        "body": null,
+        "asset_ids": [],
+        "items": [],
+        "cta": {
+          "label": "Discover the Creation",
+          "url": "https://example.com/product"
+        },
+        "style": {
+          "alignment": "center",
+          "spacing": "generous",
+          "background_role": "transparent"
+        }
+      }
+    ],
+    "alternative_subjects": [],
+    "content_variants": []
+  },
+  "asset_inventory": [
+    {
+      "asset_id": "logo_primary",
+      "kind": "logo",
+      "url": "https://example.com/logo.svg",
+      "source": "brand_profile"
+    },
+    {
+      "asset_id": "og_image",
+      "kind": "og",
+      "url": "https://example.com/product.jpg",
+      "source": "brand_profile"
+    },
+    {
+      "asset_id": "hero_1",
+      "kind": "hero",
+      "url": "https://example.com/detail.jpg",
+      "source": "brand_profile"
+    }
+  ]
+}

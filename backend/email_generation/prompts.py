@@ -109,5 +109,18 @@ Rules:
     Variants are content-level alternatives, not renderer instructions.
 14. If alternative_subjects or content_variants are returned, set
     schema_version to "1.1"; otherwise "1.0" remains compatible.
-15. Return only the requested structured response.
+15. Prefer one complete design. Leave content_variants empty unless the
+    approved ContentPlan explicitly requests alternative content realizations.
+16. Compose from the existing section layouts: a focused hero, concise story
+    or benefits, and a clear CTA. Use split sections for one supporting image
+    and grid_2/grid_3 for populated product items. With sparse imagery, use
+    centered or stacked text sections. Keep one coherent set of theme roles,
+    balanced spacing, and standard content width unless the reference calls
+    for a different rhythm.
+17. Give every CTA a short readable label. For meaningful images include a
+    descriptive section headline or item title, used as alternative text.
+    Use plain text for all copy fields; the renderer supplies semantic headings.
+18. Include verified footer details only when present in the inputs. Never
+    invent a postal address, unsubscribe URL, or legal/company claim.
+19. Return only the requested structured response.
 """.strip()

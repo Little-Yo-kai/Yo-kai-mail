@@ -141,7 +141,7 @@ def generate_phase1_demo(
             stage,
             {
                 "url": url,
-                "normalizer_version": 3,
+                "normalizer_version": 4,
                 "provider_max_age_ms": website_max_age_ms,
                 "formats": _WEBSITE_FORMATS,
                 "credential": fingerprint(settings.FIRECRAWL_API_KEY),
@@ -326,6 +326,8 @@ def generate_phase1_demo(
             "asset_inventory": design_result["asset_inventory"],
             "render": {
                 "html": compile_result["html"],
+                "text": compile_result.get("text", ""),
+                "warnings": render_result.get("warnings", []),
                 "preview_html": preview_html,
                 "preview_asset_diagnostics": preview_asset_diagnostics,
                 "cached_assets": cached_assets,

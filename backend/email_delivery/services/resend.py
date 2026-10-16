@@ -5,12 +5,16 @@ import time
 import resend
 from django.conf import settings
 
+from assets.services.ssrf import normalize_public_asset_url
+from core.timing import timed_stage
 from email_assets.html import image_sources, replace_image_sources
 from email_assets.temp_cache import (
+    MIME_EXTENSIONS,
     EmailAssetCacheError,
     get_or_cache_remote_image,
     read_cached_email_asset,
 )
+from email_rendering.text import html_to_plain_text
 
 
 class ResendNotConfiguredError(RuntimeError):
@@ -63,6 +67,10 @@ def _prepare_inline_assets(
     # A missing client manifest must not silently turn an image email into
     # a hotlinked email. Campaign delivery also uses this path.
     for source_url in sorted(source_urls - supplied_urls):
+        if not normalize_public_asset_url(source_url):
+            raise ResendDeliveryError(
+                "Email image must use a public URL or a cached inline asset.",
+            )
         try:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -100,6 +108,8 @@ def _prepare_inline_assets(
         if cid is None:
             if len(attachments) >= settings.EMAIL_ASSET_MAX_INLINE_COUNT:
                 raise ResendDeliveryError("Too many inline images for one email.")
+            if cached.mime_type not in MIME_EXTENSIONS or not cached.body:
+                raise ResendDeliveryError("Cached email asset is not a supported image.")
             total_bytes += len(cached.body)
             if total_bytes > settings.EMAIL_ASSET_MAX_INLINE_BYTES:
                 raise ResendDeliveryError(
@@ -177,6 +187,7 @@ class ResendEmailService:
             "to": [to],
             "subject": subject,
             "html": delivery_html,
+            "text": html_to_plain_text(delivery_html),
         }
 
         if attachments:
@@ -186,10 +197,11 @@ class ResendEmailService:
             options: resend.Emails.SendOptions = {
                 "idempotency_key": key,
             }
-            response = resend.Emails.send(
-                params,
-                options,
-            )
+            with timed_stage("send", provider="resend"):
+                response = resend.Emails.send(
+                    params,
+                    options,
+                )
         except Exception as exc:
             status_code = getattr(exc, "status_code", None)
             if not isinstance(status_code, int):

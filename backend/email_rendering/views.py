@@ -107,6 +107,8 @@ class HTMLRenderView(APIView):
                 "success": True,
                 "data": {
                     "html": compile_result["html"],
+                    "text": compile_result.get("text", ""),
+                    "warnings": render_result.get("warnings", []),
                     "compiler_errors": compile_result["compiler_errors"],
                     "mjml": render_result["mjml"],
                     "resolved_theme": render_result["resolved_theme"],

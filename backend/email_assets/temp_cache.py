@@ -2,18 +2,25 @@ import hashlib
 import io
 import json
 import os
+import re
 import tempfile
 import time
 import urllib.error
 import urllib.request
+import warnings
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 from django.conf import settings
 from PIL import Image, UnidentifiedImageError
 
-from email_rendering.screenshot import _detect_image_mime, _host_is_public
+from assets.services.ssrf import (
+    SSRFBlockedError,
+    assert_safe_url,
+    normalize_public_asset_url,
+)
 
 MAX_REDIRECTS = 3
 CACHE_KEY_PATTERN_LENGTH = 64
@@ -80,29 +87,67 @@ def _urls_dir() -> Path:
 
 
 def _safe_public_http_url(value: str) -> bool:
-    parsed = urlparse(value)
-    return (
-        parsed.scheme in {"http", "https"}
-        and bool(parsed.hostname)
-        and _host_is_public(parsed.hostname)
-    )
+    try:
+        assert_safe_url(value)
+    except SSRFBlockedError:
+        return False
+    return True
 
 
 def _detect_asset_mime(
     body: bytes,
     content_type: str | None,
 ) -> str | None:
-    detected = _detect_image_mime(body)
-    if detected:
-        return detected
-
     normalized = (content_type or "").split(";", 1)[0].strip().lower()
-    stripped = body.lstrip()
+    if normalized and normalized not in {
+        *MIME_EXTENSIONS, "application/octet-stream", "image/svg+xml",
+    }:
+        return None
 
-    if normalized == "image/svg+xml" and (
-        stripped.startswith((b"<svg", b"<?xml"))
+    if normalized == "image/svg+xml":
+        # An XML declaration alone does not establish that this is an image.
+        if b"<!DOCTYPE" in body.upper() or b"<!ENTITY" in body.upper():
+            return None
+        try:
+            root = ET.fromstring(body)
+        except ET.ParseError:
+            return None
+        if root.tag not in {"svg", "{http://www.w3.org/2000/svg}svg"}:
+            return None
+        for element in root.iter():
+            tag = element.tag.rsplit("}", 1)[-1].lower()
+            if tag in {"script", "foreignobject"}:
+                return None
+            css_values = [element.text or ""] if tag == "style" else []
+            for key, value in element.attrib.items():
+                attribute = key.rsplit("}", 1)[-1].lower()
+                if attribute.startswith("on"):
+                    return None
+                if attribute == "href" and not value.strip().startswith("#"):
+                    return None
+                css_values.append(value)
+            for css in css_values:
+                if "@import" in css.lower() or any(
+                    not target.strip().strip("\"'").startswith("#")
+                    for target in re.findall(r"url\s*\(([^)]*)\)", css, re.IGNORECASE)
+                ):
+                    return None
+        return normalized
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(body)) as image:
+                mime_type = Image.MIME.get(image.format)
+                image.verify()
+    except (
+        UnidentifiedImageError, OSError, ValueError,
+        Image.DecompressionBombError, Image.DecompressionBombWarning,
     ):
-        return "image/svg+xml"
+        return None
+
+    if mime_type in MIME_EXTENSIONS and mime_type != "image/svg+xml":
+        return mime_type
 
     return None
 
@@ -113,10 +158,12 @@ def _fetch_public_image(url: str, *, timeout: float = 8) -> tuple[bytes, str, st
     deadline = time.monotonic() + timeout
 
     for _ in range(MAX_REDIRECTS + 1):
-        if not _safe_public_http_url(current_url):
+        normalized_url = normalize_public_asset_url(current_url)
+        if not normalized_url or not _safe_public_http_url(normalized_url):
             raise EmailAssetCacheError(
                 "Image URL is not a safe public HTTP(S) destination."
             )
+        current_url = normalized_url
 
         request = urllib.request.Request(
             current_url,
@@ -138,16 +185,16 @@ def _fetch_public_image(url: str, *, timeout: float = 8) -> tuple[bytes, str, st
         except urllib.error.HTTPError as exc:
             if exc.code in {301, 302, 303, 307, 308}:
                 location = exc.headers.get("Location")
+                exc.close()
                 if not location:
                     raise EmailAssetCacheError(
-
-                            f"Image redirect returned HTTP {exc.code} "
-                            "without Location."
-
+                        f"Image redirect returned HTTP {exc.code} "
+                        "without Location."
                     ) from exc
                 current_url = urljoin(current_url, location)
                 continue
 
+            exc.close()
             raise EmailAssetCacheError(
                 f"Image request returned HTTP {exc.code}."
             ) from exc
@@ -225,7 +272,16 @@ def _atomic_write(path: Path, body: bytes) -> None:
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(body)
-        os.replace(temporary, path)
+        for attempt in range(5):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError:
+                # Windows can briefly deny replacement while another writer
+                # replaces the same content-addressed cache object/index.
+                if attempt == 4:
+                    raise
+                time.sleep(0.01 * (attempt + 1))
     finally:
         Path(temporary).unlink(missing_ok=True)
 

@@ -1,8 +1,9 @@
 from html import escape
-from urllib.parse import urlparse
 
 from brand_intelligence.schemas import BrandProfile
+from core.timing import timed_stage
 from email_generation.schemas import AssetDescriptor, EmailDesign, EmailSection
+from email_generation.services.validation import is_valid_http_url, lint_email_design
 
 SYSTEM_FONT = "Arial, Helvetica, sans-serif"
 
@@ -37,8 +38,7 @@ def _safe_url(value: str | None) -> str | None:
         return None
 
     candidate = value.strip()
-    parsed = urlparse(candidate)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    if not is_valid_http_url(candidate):
         return None
 
     return candidate
@@ -194,6 +194,7 @@ def _mj_text(
     font_weight: str = "400",
     padding: str = "0px",
     letter_spacing: str | None = None,
+    heading_level: int | None = None,
 ) -> str:
     if not isinstance(value, str) or not value.strip():
         return ""
@@ -203,6 +204,13 @@ def _mj_text(
         if letter_spacing
         else ""
     )
+    content = _safe_text(value)
+    if heading_level is not None:
+        content = (
+            f'<h{heading_level} style="margin:0;font-size:inherit;'
+            'line-height:inherit;font-weight:inherit;">'
+            f'{content}</h{heading_level}>'
+        )
     return (
         f'<mj-text align="{_safe_attr(align)}" '
         f'font-family="{_safe_attr(font_family)}" '
@@ -211,7 +219,7 @@ def _mj_text(
         f'line-height="{_safe_attr(line_height)}" '
         f'font-weight="{_safe_attr(font_weight)}" '
         f'padding="{_safe_attr(padding)}"{letter_attr}>'
-        f'{_safe_text(value)}</mj-text>'
+        f'{content}</mj-text>'
     )
 
 
@@ -220,7 +228,7 @@ def _mj_button(cta, *, align: str, theme: dict) -> str:
         return ""
 
     href = _safe_url(cta.url)
-    if not href:
+    if not href or not cta.label.strip():
         return ""
 
     return (
@@ -283,6 +291,7 @@ def _section_copy(section: EmailSection, theme: dict) -> str:
             line_height="34px" if section.type != "hero" else "42px",
             font_weight="500",
             padding="0 0 14px 0",
+            heading_level=1 if section.type == "hero" else 2,
         ),
         _mj_text(
             section.body,
@@ -315,6 +324,7 @@ def _render_item(item, *, theme: dict, asset_urls: dict[str, str]) -> str:
             line_height="24px",
             font_weight="500",
             padding="0 0 8px 0",
+            heading_level=3,
         ),
         _mj_text(
             item.body,
@@ -341,7 +351,16 @@ def _render_grid(section: EmailSection, *, theme: dict, asset_urls: dict[str, st
             + '</mj-column>'
         )
 
-    return (
+    # Grid layouts still carry section-level copy, imagery and a CTA. Keep
+    # those fields rather than silently dropping them when rendering items.
+    lead = ""
+    if any((section.eyebrow, section.headline, section.body, section.cta, section.asset_ids)):
+        lead = _render_standard(
+            section.model_copy(update={"items": []}),
+            theme=theme,
+            asset_urls=asset_urls,
+        )
+    return lead + (
         f'<mj-section background-color="{_safe_attr(background)}" '
         f'padding="{_safe_attr(padding)}" css-class="email-section">'
         + "".join(columns)
@@ -365,7 +384,10 @@ def _render_split(section: EmailSection, *, theme: dict, asset_urls: dict[str, s
     copy_column = (
         '<mj-column width="50%" vertical-align="middle" padding="12px 16px">'
         + _section_copy(section, theme)
-        + "".join(_render_item(item, theme=theme, asset_urls=asset_urls) for item in section.items)
+        + "".join(
+            _render_item(item, theme=theme, asset_urls=asset_urls)
+            for item in section.items
+        )
         + '</mj-column>'
     )
 
@@ -451,7 +473,7 @@ def _render_section(section: EmailSection, *, theme: dict, asset_urls: dict[str,
             '</mj-column></mj-section>'
         )
 
-    if section.type == "product_grid" or section.layout in {"grid_2", "grid_3"}:
+    if section.items and (section.type == "product_grid" or section.layout in {"grid_2", "grid_3"}):
         return _render_grid(
             section,
             theme=theme,
@@ -474,6 +496,7 @@ def _render_section(section: EmailSection, *, theme: dict, asset_urls: dict[str,
     )
 
 
+@timed_stage("mjml_render")
 def render_email_to_mjml(
     *,
     brand_profile: dict,
@@ -541,4 +564,5 @@ def render_email_to_mjml(
         },
         "rendered_sections": len(design.sections),
         "available_asset_ids": sorted(asset_urls.keys()),
+        "warnings": lint_email_design(design),
     }

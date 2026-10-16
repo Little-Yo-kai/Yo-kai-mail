@@ -10,19 +10,22 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from core.generation_budget import current_budget
 from core.preparation_cache import cached_preparation
+from core.timing import timed_stage
 
 _reference_slots = BoundedSemaphore(max(1, settings.DEMO_MAX_CONCURRENT_GENERATIONS))
 
 
 def prepare(stage, inputs, compute, *, timeout, refresh=False):
     started = time.monotonic()
-    result, status = cached_preparation(
-        stage=stage,
-        inputs=inputs,
-        compute=compute,
-        timeout=timeout,
-        refresh=refresh,
-    )
+    with timed_stage(stage) as timing:
+        result, status = cached_preparation(
+            stage=stage,
+            inputs=inputs,
+            compute=compute,
+            timeout=timeout,
+            refresh=refresh,
+        )
+        timing["cache_hit"] = status in {"hit", "shared"}
     return result, {
         "stage": stage,
         "duration_seconds": round(time.monotonic() - started, 3),

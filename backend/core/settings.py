@@ -216,6 +216,15 @@ MJML_COMPILE_TIMEOUT_SECONDS = env.int(
     'MJML_COMPILE_TIMEOUT_SECONDS',
     default=10,
 )
+MJML_COMPILE_CACHE_TTL_SECONDS = env.int('MJML_COMPILE_CACHE_TTL_SECONDS', default=900)
+
+# The default Django cache is bounded, per-process LocMemCache. No new service.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'workflow': {'class': 'logging.StreamHandler'}},
+    'loggers': {'yokai.workflow': {'handlers': ['workflow'], 'level': 'INFO', 'propagate': False}},
+}
 
 RESEND_API_KEY = env('RESEND_API_KEY', default='')
 RESEND_FROM_EMAIL = env(
