@@ -2,11 +2,11 @@ import json
 
 from django.conf import settings
 from google import genai
-from core.gemini_client import create_gemini_client
 from pydantic import ValidationError
 
 from brand_intelligence.schemas import BrandProfile
 from core.ai_fallback import call_with_model_fallback
+from core.gemini_client import create_gemini_client, gemini_json_schema
 from email_generation.builders import (
     normalize_email_design,
     repair_email_design_payload,
@@ -90,7 +90,7 @@ class GeminiEmailDesignReviser:
             response_format={
                 "type": "text",
                 "mime_type": "application/json",
-                "schema": EmailDesign.model_json_schema(),
+                "schema": gemini_json_schema(EmailDesign),
             },
         )
 

@@ -136,6 +136,16 @@ def sample_assets():
 
 
 class DeterministicMJMLRendererTests(APITestCase):
+    def test_full_width_hero_preserves_structured_item_copy(self):
+        design = sample_email_design()
+        design["sections"][0]["items"] = [{"title": "Crafted details", "body": "A removable pouch."}]
+        rendered = render_email_to_mjml(
+            brand_profile=sample_brand_profile(), email_design=design,
+            asset_inventory=sample_assets(),
+        )
+        self.assertIn("Crafted details", rendered["mjml"])
+        self.assertIn("A removable pouch.", rendered["mjml"])
+
     def test_renderer_resolves_assets_and_escapes_copy(self):
         result = render_email_to_mjml(
             brand_profile=sample_brand_profile(),

@@ -2,7 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-
 AssetKind = Literal[
     "logo",
     "hero",
@@ -132,13 +131,13 @@ def _has_meaningful_items(items: list["EmailSectionItem"]) -> bool:
 
 
 class EmailCTA(BaseModel):
-    label: str
+    label: str = Field(max_length=100)
     url: str | None = None
 
 
 class EmailSectionItem(BaseModel):
-    title: str | None = None
-    body: str | None = None
+    title: str | None = Field(default=None, max_length=160)
+    body: str | None = Field(default=None, max_length=1000)
     asset_id: str | None = None
     cta: EmailCTA | None = None
 
@@ -182,11 +181,11 @@ class EmailSection(BaseModel):
         "stacked",
         "minimal",
     ]
-    eyebrow: str | None = None
-    headline: str | None = None
-    body: str | None = None
+    eyebrow: str | None = Field(default=None, max_length=120)
+    headline: str | None = Field(default=None, max_length=160)
+    body: str | None = Field(default=None, max_length=1200)
     asset_ids: list[str] = Field(default_factory=list)
-    items: list[EmailSectionItem] = Field(default_factory=list)
+    items: list[EmailSectionItem] = Field(default_factory=list, max_length=8)
     cta: EmailCTA | None = None
     style: SectionStyle
 
@@ -195,22 +194,19 @@ class EmailSection(BaseModel):
         if self.type == "hero" and not _has_text(self.headline):
             raise ValueError("Hero sections require a headline.")
 
-        if self.type in {
-            "intro",
-            "product_feature",
-            "lifestyle",
-            "offer",
-        }:
-            if not _has_text(self.body) and not _has_meaningful_items(self.items):
-                raise ValueError(
-                    f"{self.type} sections require body copy or populated items."
-                )
+        if (
+            self.type in {"intro", "product_feature", "lifestyle", "offer"}
+            and not _has_text(self.body)
+            and not _has_meaningful_items(self.items)
+        ):
+            raise ValueError(
+                f"{self.type} sections require body copy or populated items."
+            )
 
-        if self.type == "benefits":
-            if not _has_text(self.body) and not _has_meaningful_items(self.items):
-                raise ValueError(
-                    "Benefits sections require body copy or populated items."
-                )
+        if self.type == "benefits" and not _has_text(self.body) and not _has_meaningful_items(self.items):
+            raise ValueError(
+                "Benefits sections require body copy or populated items."
+            )
 
         if self.type == "product_grid" and not _has_meaningful_items(self.items):
             raise ValueError(
@@ -243,16 +239,16 @@ class EmailContentVariant(BaseModel):
     """An alternate campaign content realization for experimentation."""
 
     variant_id: str
-    subject: str
-    preheader: str
-    sections: list[EmailSection] = Field(min_length=1)
+    subject: str = Field(max_length=200)
+    preheader: str = Field(max_length=240)
+    sections: list[EmailSection] = Field(min_length=1, max_length=12)
 
 
 class EmailDesign(BaseModel):
     schema_version: str = "1.0"
-    subject: str
-    preheader: str
+    subject: str = Field(max_length=200)
+    preheader: str = Field(max_length=240)
     theme: EmailTheme
-    sections: list[EmailSection] = Field(min_length=1)
+    sections: list[EmailSection] = Field(min_length=1, max_length=12)
     alternative_subjects: list[str] = Field(default_factory=list, max_length=4)
     content_variants: list[EmailContentVariant] = Field(default_factory=list, max_length=4)

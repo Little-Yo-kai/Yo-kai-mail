@@ -8,6 +8,7 @@ from reference_design.serializers import (
 
 class DemoGenerateSerializer(serializers.Serializer):
     url = serializers.URLField()
+    refresh_website = serializers.BooleanField(required=False, default=False)
     reference_image = serializers.FileField(
         required=False,
         allow_null=True,

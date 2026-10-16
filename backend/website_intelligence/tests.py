@@ -8,6 +8,21 @@ from .normalizers import build_website_snapshot
 
 
 class WebsiteSnapshotNormalizerTests(APITestCase):
+    def test_explicit_product_page_preserves_product_evidence(self):
+        snapshot = build_website_snapshot("https://example.com/item", {
+            "metadata": {"page_type": "productsheet", "og_description": "Monogram Pearly coated canvas"},
+            "markdown": "## Cookies\n\n# All In BB\n\nProduct story",
+        })
+        self.assertEqual(snapshot["product"]["name"], "All In BB")
+        self.assertEqual(snapshot["product"]["description"], "Monogram Pearly coated canvas")
+        self.assertEqual(snapshot["product"]["url"], "https://example.com/item")
+
+    def test_non_product_page_does_not_invent_product_facts(self):
+        snapshot = build_website_snapshot("https://example.com/products", {
+            "markdown": "# Welcome to our products",
+        })
+        self.assertIsNone(snapshot["product"])
+
     def test_builds_provider_independent_snapshot(self):
         raw = {
             "markdown": "# Side Trunk MM",

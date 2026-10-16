@@ -162,6 +162,27 @@ GEMINI_REQUEST_TIMEOUT_SECONDS = env.float('GEMINI_REQUEST_TIMEOUT_SECONDS', def
 DEMO_GENERATION_TIMEOUT_SECONDS = env.float('DEMO_GENERATION_TIMEOUT_SECONDS', default=240)
 DEMO_MAX_CONCURRENT_GENERATIONS = env.int('DEMO_MAX_CONCURRENT_GENERATIONS', default=4)
 DEMO_PREVIEW_TIMEOUT_SECONDS = env.float('DEMO_PREVIEW_TIMEOUT_SECONDS', default=8)
+# Completed preparation is reusable; the final email is always composed afresh.
+GENERATION_CACHE_ENABLED = env.bool('GENERATION_CACHE_ENABLED', default=True)
+GENERATION_WEBSITE_CACHE_SECONDS = env.int('GENERATION_WEBSITE_CACHE_SECONDS', default=600)
+GENERATION_ANALYSIS_CACHE_SECONDS = env.int('GENERATION_ANALYSIS_CACHE_SECONDS', default=3600)
+GENERATION_PLAN_CACHE_SECONDS = env.int('GENERATION_PLAN_CACHE_SECONDS', default=600)
+GENERATION_CACHE_URL = env('GENERATION_CACHE_URL', default='')
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'},
+    'generation': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'email-generation-preparation',
+        'OPTIONS': {'MAX_ENTRIES': 256},
+    },
+}
+if GENERATION_CACHE_URL:
+    CACHES['generation'] = {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': GENERATION_CACHE_URL,
+        'KEY_PREFIX': 'yokai',
+        'OPTIONS': {'socket_connect_timeout': 1, 'socket_timeout': 1},
+    }
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
 GEMINI_MODEL = env('GEMINI_MODEL', default='gemini-3.8-flash')
 GEMINI_REFERENCE_MODEL = env(

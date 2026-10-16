@@ -6,6 +6,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from email_assets.tests import image_bytes
+
 from .preview import build_preview_html
 from .service import _default_campaign_brief
 
@@ -117,7 +119,7 @@ class DemoPreviewHtmlTests(APITestCase):
     @patch("email_assets.temp_cache._fetch_public_image")
     def test_known_email_image_is_embedded_and_cached(self, fetch_mock):
         fetch_mock.return_value = (
-            b"\x89PNG\r\n\x1a\npreview-bytes",
+            image_bytes(),
             "image/png",
             "https://cdn.example.com/hero.png",
         )
@@ -127,19 +129,18 @@ class DemoPreviewHtmlTests(APITestCase):
             'alt="Hero"></body></html>'
         )
 
-        with tempfile.TemporaryDirectory() as cache_dir:
-            with self.settings(EMAIL_ASSET_CACHE_DIR=cache_dir):
-                preview_html, diagnostics, cached_assets = build_preview_html(
-                    html_document=source_html,
-                    asset_inventory=[
-                        {
-                            "asset_id": "hero_1",
-                            "kind": "hero",
-                            "url": "https://cdn.example.com/hero.png",
-                            "source": "brand_profile",
-                        }
-                    ],
-                )
+        with tempfile.TemporaryDirectory() as cache_dir, self.settings(EMAIL_ASSET_CACHE_DIR=cache_dir):
+            preview_html, diagnostics, cached_assets = build_preview_html(
+                html_document=source_html,
+                asset_inventory=[
+                    {
+                        "asset_id": "hero_1",
+                        "kind": "hero",
+                        "url": "https://cdn.example.com/hero.png",
+                        "source": "brand_profile",
+                    }
+                ],
+            )
 
         self.assertIn("data:image/png;base64,", preview_html)
         self.assertNotIn(
@@ -157,7 +158,7 @@ class DemoPreviewHtmlTests(APITestCase):
     @patch("email_assets.temp_cache._fetch_public_image")
     def test_cached_preview_reuses_downloaded_bytes(self, fetch_mock):
         fetch_mock.return_value = (
-            b"\x89PNG\r\n\x1a\npreview-bytes",
+            image_bytes(),
             "image/png",
             "https://cdn.example.com/hero.png",
         )
@@ -175,16 +176,15 @@ class DemoPreviewHtmlTests(APITestCase):
             }
         ]
 
-        with tempfile.TemporaryDirectory() as cache_dir:
-            with self.settings(EMAIL_ASSET_CACHE_DIR=cache_dir):
-                build_preview_html(
-                    html_document=source_html,
-                    asset_inventory=inventory,
-                )
-                _, diagnostics, _ = build_preview_html(
-                    html_document=source_html,
-                    asset_inventory=inventory,
-                )
+        with tempfile.TemporaryDirectory() as cache_dir, self.settings(EMAIL_ASSET_CACHE_DIR=cache_dir):
+            build_preview_html(
+                html_document=source_html,
+                asset_inventory=inventory,
+            )
+            _, diagnostics, _ = build_preview_html(
+                html_document=source_html,
+                asset_inventory=inventory,
+            )
 
         self.assertEqual(fetch_mock.call_count, 1)
         self.assertTrue(diagnostics[0]["cache_hit"])
@@ -200,19 +200,18 @@ class DemoPreviewHtmlTests(APITestCase):
             'alt="Hero"></body></html>'
         )
 
-        with tempfile.TemporaryDirectory() as cache_dir:
-            with self.settings(EMAIL_ASSET_CACHE_DIR=cache_dir):
-                preview_html, diagnostics, cached_assets = build_preview_html(
-                    html_document=source_html,
-                    asset_inventory=[
-                        {
-                            "asset_id": "hero_1",
-                            "kind": "hero",
-                            "url": "https://cdn.example.com/hero.png",
-                            "source": "brand_profile",
-                        }
-                    ],
-                )
+        with tempfile.TemporaryDirectory() as cache_dir, self.settings(EMAIL_ASSET_CACHE_DIR=cache_dir):
+            preview_html, diagnostics, cached_assets = build_preview_html(
+                html_document=source_html,
+                asset_inventory=[
+                    {
+                        "asset_id": "hero_1",
+                        "kind": "hero",
+                        "url": "https://cdn.example.com/hero.png",
+                        "source": "brand_profile",
+                    }
+                ],
+            )
 
         self.assertIn(
             'src="https://cdn.example.com/hero.png"',

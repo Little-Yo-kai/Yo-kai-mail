@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 from brand_intelligence.schemas import BrandProfile
 from email_generation.schemas import AssetDescriptor, EmailDesign, EmailSection
 
-
 SYSTEM_FONT = "Arial, Helvetica, sans-serif"
 
 CONTENT_WIDTHS = {
@@ -14,10 +13,10 @@ CONTENT_WIDTHS = {
 }
 
 SECTION_PADDING = {
-    "compact": "16px 24px",
-    "balanced": "28px 32px",
-    "generous": "44px 36px",
-    "very_generous": "64px 36px",
+    "compact": "12px 28px",
+    "balanced": "24px 32px",
+    "generous": "32px 36px",
+    "very_generous": "44px 36px",
 }
 
 
@@ -56,7 +55,12 @@ def _normalize_font(value: str | None) -> str:
     value = _first_nonempty(value)
     if not value:
         return SYSTEM_FONT
-    return value[:200]
+    # A scraped font name does not install the website's font in an inbox.
+    # Always end with fonts that are present in ordinary email clients.
+    family = value[:150].replace('"', "").replace("'", "")
+    if family.lower().endswith(("serif", "monospace")):
+        return family
+    return f"{family}, {SYSTEM_FONT}"
 
 
 def _normalize_hex(value: str | None, fallback: str) -> str:
@@ -238,6 +242,7 @@ def _mj_image(
     asset_urls: dict[str, str],
     alt: str | None,
     padding: str = "0px",
+    width: str | None = None,
 ) -> str:
     if not asset_id:
         return ""
@@ -246,9 +251,11 @@ def _mj_image(
     if not src:
         return ""
 
+    width_attr = f'width="{_safe_attr(width)}" ' if width else ""
     return (
         f'<mj-image src="{_safe_attr(src)}" '
         f'alt="{_safe_attr(alt or "")}" '
+        f'{width_attr}'
         f'padding="{_safe_attr(padding)}" fluid-on-mobile="true" />'
     )
 
@@ -272,8 +279,8 @@ def _section_copy(section: EmailSection, theme: dict) -> str:
             align=align,
             font_family=theme["heading_font"],
             color=theme["text_color"],
-            font_size="30px" if section.type != "hero" else "38px",
-            line_height="38px" if section.type != "hero" else "46px",
+            font_size="26px" if section.type != "hero" else "36px",
+            line_height="34px" if section.type != "hero" else "42px",
             font_weight="500",
             padding="0 0 14px 0",
         ),
@@ -336,7 +343,7 @@ def _render_grid(section: EmailSection, *, theme: dict, asset_urls: dict[str, st
 
     return (
         f'<mj-section background-color="{_safe_attr(background)}" '
-        f'padding="{_safe_attr(padding)}">'
+        f'padding="{_safe_attr(padding)}" css-class="email-section">'
         + "".join(columns)
         + '</mj-section>'
     )
@@ -347,7 +354,7 @@ def _render_split(section: EmailSection, *, theme: dict, asset_urls: dict[str, s
     padding = SECTION_PADDING[section.style.spacing]
     asset_id = section.asset_ids[0] if section.asset_ids else None
     image_column = (
-        '<mj-column width="50%" padding="0 18px">'
+        '<mj-column width="50%" vertical-align="middle" padding="12px 16px">'
         + _mj_image(
             asset_id,
             asset_urls=asset_urls,
@@ -356,21 +363,17 @@ def _render_split(section: EmailSection, *, theme: dict, asset_urls: dict[str, s
         + '</mj-column>'
     )
     copy_column = (
-        '<mj-column width="50%" padding="0 18px">'
+        '<mj-column width="50%" vertical-align="middle" padding="12px 16px">'
         + _section_copy(section, theme)
+        + "".join(_render_item(item, theme=theme, asset_urls=asset_urls) for item in section.items)
         + '</mj-column>'
-    )
-
-    columns = (
-        copy_column + image_column
-        if section.layout == "split_image_right"
-        else image_column + copy_column
     )
 
     return (
         f'<mj-section background-color="{_safe_attr(background)}" '
-        f'padding="{_safe_attr(padding)}">'
-        f'{columns}</mj-section>'
+        f'padding="{_safe_attr(padding)}" '
+        f'css-class="email-section" direction="{"rtl" if section.layout == "split_image_right" else "ltr"}">'
+        f'{image_column}{copy_column}</mj-section>'
     )
 
 
@@ -385,6 +388,27 @@ def _render_standard(section: EmailSection, *, theme: dict, asset_urls: dict[str
         alt=section.headline,
         padding="0 0 28px 0",
     )
+
+    # A hero photo needs its own full-width surface, rather than being
+    # squeezed into the same padded text column as a paragraph.
+    if section.type == "hero" and section.layout == "full_width" and image:
+        heading = _section_copy(section.model_copy(update={"body": None, "cta": None}), theme)
+        after_image = _section_copy(section.model_copy(update={"headline": None, "eyebrow": None}), theme)
+        return (
+            f'<mj-section background-color="{_safe_attr(background)}" padding="20px 32px" '
+            'css-class="email-section"><mj-column>'
+            + heading
+            + '</mj-column></mj-section>'
+            f'<mj-section background-color="{_safe_attr(background)}" padding="0px">'
+            '<mj-column>'
+            + _mj_image(asset_id, asset_urls=asset_urls, alt=section.headline, width="480px")
+            + '</mj-column></mj-section>'
+            f'<mj-section background-color="{_safe_attr(background)}" '
+            'padding="0 32px 24px" css-class="email-section"><mj-column>'
+            + after_image
+            + "".join(_render_item(item, theme=theme, asset_urls=asset_urls) for item in section.items)
+            + '</mj-column></mj-section>'
+        )
 
     content = image + _section_copy(section, theme)
 
@@ -404,13 +428,18 @@ def _render_standard(section: EmailSection, *, theme: dict, asset_urls: dict[str
 
     return (
         f'<mj-section background-color="{_safe_attr(background)}" '
-        f'padding="{_safe_attr(padding)}">'
+        f'padding="{_safe_attr(padding)}" css-class="email-section">'
         f'<mj-column>{content}</mj-column>'
         '</mj-section>'
     )
 
 
 def _render_section(section: EmailSection, *, theme: dict, asset_urls: dict[str, str]) -> str:
+    # Copy on primary/accent panels must contrast with that panel, even when
+    # the brand's normal text color is dark.
+    background = _section_background(section, theme)
+    if section.style.background_role in {"primary", "secondary", "accent"}:
+        theme = {**theme, "text_color": _contrast_text(background), "secondary_color": _contrast_text(background)}
     if section.type == "divider":
         background = _section_background(section, theme)
         return (
@@ -429,7 +458,9 @@ def _render_section(section: EmailSection, *, theme: dict, asset_urls: dict[str,
             asset_urls=asset_urls,
         )
 
-    if section.layout in {"split_image_left", "split_image_right"} and section.asset_ids:
+    if section.layout in {"split_image_left", "split_image_right"} and any(
+        asset_id in asset_urls for asset_id in section.asset_ids
+    ):
         return _render_split(
             section,
             theme=theme,
@@ -462,6 +493,17 @@ def render_email_to_mjml(
     theme = resolve_theme(brand, design)
     asset_urls = _asset_map(assets)
 
+    masthead = (
+        f'<mj-section background-color="{_safe_attr(theme["background_color"])}" '
+        'padding="28px 24px 24px"><mj-column>'
+        + _mj_text(
+            brand.identity.name.upper(), align="center", font_family=SYSTEM_FONT,
+            color=theme["text_color"], font_size="19px", line_height="26px",
+            font_weight="600", letter_spacing="3px",
+        )
+        + '</mj-column></mj-section>'
+    )
+
     sections = "".join(
         _render_section(
             section,
@@ -479,10 +521,13 @@ def render_email_to_mjml(
         '<mj-attributes>'
         f'<mj-all font-family="{_safe_attr(theme["body_font"])}" />'
         '</mj-attributes>'
+        '<mj-style>@media only screen and (max-width:480px) {'
+        '.email-section > table > tbody > tr > td {padding-left:20px !important; padding-right:20px !important;}'
+        '}</mj-style>'
         '</mj-head>'
         f'<mj-body background-color="{_safe_attr(theme["background_color"])}" '
         f'width="{_safe_attr(theme["content_width"])}">'
-        f'{sections}'
+        f'{masthead}{sections}'
         '</mj-body>'
         '</mjml>'
     )

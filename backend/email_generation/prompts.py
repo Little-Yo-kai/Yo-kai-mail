@@ -36,7 +36,11 @@ Rules:
    rewrites of the same finished subject.
 9. If assets are insufficient for the ideal reference layout, adapt the plan
    honestly instead of pretending assets exist.
-10. Return only the requested structured response.
+10. Build a concrete, concise narrative around the supplied product when one
+    exists. Do not replace product evidence with generic brand-welcome copy.
+11. Use each photograph once. One available photograph means one image-led
+    section, followed by well-composed text; do not repeat it as a lifestyle image.
+12. Return only the requested structured response.
 """.strip()
 
 
@@ -55,6 +59,16 @@ Inputs:
 - FactLedger: the only authoritative source for concrete product and offer facts.
 
 Rules:
+0. Compose a finished editorial email: one clear hero, useful product-specific
+   copy when supported, a visible primary action, and a concise closing. Prefer
+   full_width for an image-led hero. Do not produce repeated generic welcome
+   statements, repeated photographs, or empty decorative sections. Use the
+   hero_* assets when a portrait image supports the product better than og_image.
+   The renderer adds the brand masthead. Never add a separate logo/name-only
+   hero. For a single product use 3-5 sections total and exactly one hero. Each
+   product feature must contain a short, useful sentence based on FactLedger,
+   rather than vague labels. Put the primary CTA on the hero as well as the
+   final action. Use a photograph at most once. Avoid repetitive feature lists.
 1. Follow ContentPlan for strategy. Do not invent a different campaign angle.
 2. Follow FactLedger for concrete factual claims. You may paraphrase supported
    facts, but you must not introduce unsupported features, materials, prices,

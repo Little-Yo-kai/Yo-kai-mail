@@ -1,3 +1,6 @@
+import re
+
+
 def _as_dict(value):
     return value if isinstance(value, dict) else {}
 
@@ -27,6 +30,19 @@ def build_website_snapshot(requested_url: str, firecrawl_data: dict) -> dict:
     branding = _as_dict(data.get("branding"))
     branding_images = _as_dict(branding.get("images"))
 
+    # Product metadata is evidence for the campaign as well as for the brand.
+    # Do not classify a homepage/article as a product merely from its URL.
+    page_type = str(metadata.get("page_type") or metadata.get("og_type") or "").lower()
+    product = None
+    if page_type in {"product", "productsheet", "product.item"}:
+        heading = re.search(r"^#\s+(.+)$", data.get("markdown") or "", re.MULTILINE)
+        if heading:
+            product = {
+                "name": heading.group(1).strip()[:300],
+                "description": str(metadata.get("og_description") or metadata.get("og:description") or "")[:1000],
+                "url": requested_url,
+            }
+
     return {
         "schema_version": "1.0",
         "source": {
@@ -44,11 +60,15 @@ def build_website_snapshot(requested_url: str, firecrawl_data: dict) -> dict:
         "content": {
             "markdown": data.get("markdown") or "",
         },
+        "product": product,
         "visual": {
             "screenshot": data.get("screenshot"),
         },
         "assets": {
-            "images": _public_image_urls(data.get("images")),
+            "images": _public_image_urls([
+                *((data.get("images") or []) if isinstance(data.get("images"), list) else []),
+                metadata.get("twitter:image"),
+            ]),
             "logo_candidate": (
                 branding.get("logo")
                 or branding_images.get("logo")

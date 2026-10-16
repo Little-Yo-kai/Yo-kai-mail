@@ -654,8 +654,44 @@ Fields:
 - `url` — required public website URL
 - `reference_image` — optional JPEG, PNG, or WebP marketing-email reference
 - `additional_instructions` — optional creative direction
+- `refresh_website` — optional boolean; bypass recent website, brand, and plan results
 
-URL-only mode uses a conservative generic campaign:
+### Generation speed and reliability
+
+Validated preparation is reused for identical inputs: website snapshots for ten
+minutes, brand/reference analysis for one hour, and campaign plans for ten minutes.
+Every request still composes a fresh email design. Cache keys include the exact
+inputs, provider-account fingerprint, model, prompt, schema, and builder version.
+Changing instructions invalidates the plan; changing a reference invalidates its
+analysis and plan. Refresh bypasses website, brand, and plan reuse together.
+Exceptions are never cached, and returned objects are copied before use.
+
+Uploaded-reference analysis runs alongside website import/brand analysis, using
+its own upload copy and the same request deadline. Background reference work is
+bounded by `DEMO_MAX_CONCURRENT_GENERATIONS`. Concurrent identical preparation
+within one process shares a result, while each waiter keeps its own deadline and
+cancellation. A failed producer cannot permanently occupy an in-flight slot.
+
+The response's `performance` contains total time, per-stage durations and cache
+status, and `reused_stages`. Parallel stage durations can overlap; their sum is
+not total wall time. The UI shows elapsed generation time and offers **Refresh
+website analysis** when the source has changed.
+
+Local memory is thread-safe and bounded to 256 entries per process. For multiple
+backend workers, set `GENERATION_CACHE_URL` to a private Redis URL; completed
+results are then shared across workers, while in-flight coalescing stays local.
+Redis connections/operations have one-second timeouts. Cache failures fall back
+to fresh preparation. Set `GENERATION_CACHE_ENABLED=False` to disable reuse;
+the three `GENERATION_*_CACHE_SECONDS` settings control freshness.
+
+### Campaign evidence and image editing
+
+URL-only mode uses explicit product-page metadata and the observed product
+heading when available. That evidence becomes the product description in the
+campaign brief and factual ledger, so a product URL generates a product email.
+It does not assume a new launch, discount, stock status, or price.
+
+Pages without explicit product evidence use a conservative generic campaign:
 
 ```text
 campaign_type = newsletter
@@ -669,7 +705,18 @@ internal reference library. If a reference is uploaded, the existing multimodal
 reference analyzer produces the ReferenceDesignSpec instead.
 
 The response includes the structured generation artifacts plus final MJML and
-responsive HTML so the frontend can preview or download the result.
+responsive HTML. The preview and HTML download embed validated, cached raster
+images. `render.delivery_ready` is false if a rendered image could not be cached;
+the frontend requires replacing/removing that image before test delivery.
+
+`POST /api/demo/images/` accepts a replacement raster image (up to 8 MB), validates
+and resizes its actual bytes, and returns an asset ID. `POST /api/demo/render/`
+applies image/section layout changes with no AI request. The UI supports full
+width, centered, image-left, image-right, replacement, and removal. Right-hand
+images return above the copy on mobile. Temporary bytes are shared by preview
+and delivery, and the Resend service attaches Base64 content with matching CIDs.
+It attempts to recover missing cache manifests and refuses to silently send
+unavailable images.
 
 ### Deliberately skipped in the demo path
 

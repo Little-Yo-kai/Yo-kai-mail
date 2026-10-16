@@ -1,21 +1,21 @@
 import json
 
 from django.conf import settings
-from core.ai_fallback import call_with_model_fallback
 from google import genai
-from core.gemini_client import create_gemini_client
 from pydantic import ValidationError
 
 from brand_intelligence.schemas import BrandProfile
+from core.ai_fallback import call_with_model_fallback
+from core.gemini_client import create_gemini_client, gemini_json_schema
 from reference_design.schemas import ReferenceDesignSpec
 
 from ..builders import normalize_email_design, repair_email_design_payload
-from .validation import EmailDesignContractError, validate_email_design_contract
 from ..prompts import EMAIL_DESIGN_COMPOSER_PROMPT
 from ..schemas import AssetDescriptor, ContentPlan, EmailDesign, FactLedger
 from .gemini import (
     GeminiGenerationNotConfiguredError,
 )
+from .validation import EmailDesignContractError, validate_email_design_contract
 
 
 class EmailDesignGenerationError(RuntimeError):
@@ -63,7 +63,7 @@ class GeminiEmailDesignComposer:
             response_format={
                 "type": "text",
                 "mime_type": "application/json",
-                "schema": EmailDesign.model_json_schema(),
+                "schema": gemini_json_schema(EmailDesign),
             },
         )
 
@@ -109,7 +109,7 @@ class GeminiEmailDesignComposer:
         validation_error: Exception,
     ) -> str:
         if isinstance(validation_error, ValidationError):
-            error_payload = validation_error.errors(include_url=False)
+            error_payload = validation_error.errors(include_url=False, include_input=False)
         else:
             error_payload = [
                 {
@@ -128,7 +128,7 @@ class GeminiEmailDesignComposer:
             + "Do not remove required content merely to satisfy validation. "
             + "Return a complete replacement EmailDesign, not a patch.\n\n"
             + "PREVIOUS INVALID EMAILDESIGN:\n"
-            + invalid_output
+            + invalid_output[:24000]
             + "\n\nAPPLICATION VALIDATION ERRORS:\n"
             + json.dumps(
                 error_payload,

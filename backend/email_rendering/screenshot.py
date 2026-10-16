@@ -4,6 +4,7 @@ import socket
 from urllib.parse import urlparse
 
 from django.conf import settings
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
@@ -188,7 +189,7 @@ def capture_email_screenshot(
 
                         route.fulfill(response=response)
                         return
-                    except Exception:
+                    except (PlaywrightError, OSError):
                         route.continue_()
                         return
 
