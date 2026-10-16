@@ -3,6 +3,7 @@ import json
 from django.conf import settings
 from core.ai_fallback import call_with_model_fallback
 from google import genai
+from core.gemini_client import create_gemini_client
 from pydantic import ValidationError
 
 from brand_intelligence.schemas import BrandProfile
@@ -51,7 +52,7 @@ class GeminiEmailDesignComposer:
                 "GEMINI_API_KEY is not configured."
             )
 
-        self.client = genai.Client(api_key=api_key)
+        self.client = create_gemini_client(api_key=api_key, client_factory=genai.Client)
 
     def _request_design(self, prompt: str) -> str:
         interaction = call_with_model_fallback(

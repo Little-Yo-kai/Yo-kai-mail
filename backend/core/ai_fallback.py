@@ -3,8 +3,14 @@
 import re
 import time
 
+from django.conf import settings
+
+from core.generation_budget import current_budget, request_timeout
+
 
 def is_rate_limit_error(exc: Exception) -> bool:
+    if any(str(getattr(exc, name, "")) == "429" for name in ("status_code", "code")):
+        return True
     text = str(exc).lower()
     return (
         "rate limit" in text
@@ -67,19 +73,27 @@ def call_with_model_fallback(
 
         for attempt in range(attempts):
             try:
-                return create_call(
+                result = create_call(
                     model=model,
-                    **kwargs,
+                    **{
+                        **kwargs,
+                        "timeout": request_timeout(
+                            settings.GEMINI_REQUEST_TIMEOUT_SECONDS
+                        ),
+                    },
                 )
+                budget = current_budget()
+                if budget is not None:
+                    budget.check()
+                return result
             except Exception as exc:
                 overloaded = is_temporary_unavailability_error(exc)
                 if overloaded and attempt + 1 < attempts:
+                    request_timeout(0.5)
                     time.sleep(0.5)
                     continue
 
-                if has_another_model and (
-                    is_rate_limit_error(exc) or overloaded
-                ):
+                if has_another_model and (is_rate_limit_error(exc) or overloaded):
                     break
 
                 # Authentication, schema errors, and other failures are not

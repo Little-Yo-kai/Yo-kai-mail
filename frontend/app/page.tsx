@@ -1,7 +1,8 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { readGenerationResponse } from "../lib/generation";
 
 type DemoResponse = {
   success: boolean;
@@ -89,6 +90,16 @@ type DeliveryStatusResponse = {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
+const GENERATION_STAGES: Record<string, string> = {
+  website_import: "Reading your website",
+  brand_analysis: "Understanding your brand",
+  reference_selection: "Preparing your reference design",
+  content_plan: "Planning your email",
+  email_design: "Composing your email",
+  render: "Rendering your email",
+  preview_assets: "Preparing preview images",
+};
+
 function slugify(value: string) {
   return (
     value
@@ -118,6 +129,10 @@ export default function Home() {
   const [error, setError] = useState("");
   const [errorStage, setErrorStage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [generationStage, setGenerationStage] = useState("website_import");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [timeoutSeconds, setTimeoutSeconds] = useState(240);
+  const activeRequest = useRef<AbortController | null>(null);
   const [viewport, setViewport] = useState<"desktop" | "mobile">("desktop");
   const [copied, setCopied] = useState(false);
   const [recipient, setRecipient] = useState("");
@@ -131,8 +146,36 @@ export default function Home() {
   const brandName = result?.brand_profile.identity?.name || "Generated email";
   const fileBase = useMemo(() => slugify(brandName), [brandName]);
 
+  useEffect(() => () => activeRequest.current?.abort(), []);
+
+  useEffect(() => {
+    if (!loading) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [loading]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (activeRequest.current) return;
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    let timedOut = false;
+    let lastStage = "website_import";
+    let deadlineTimer: ReturnType<typeof setTimeout>;
+    const setDeadline = (seconds: number) => {
+      clearTimeout(deadlineTimer);
+      deadlineTimer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, seconds * 1000);
+    };
+    // Cover unreachable/stalled servers as well as provider requests. The
+    // server announces its configured deadline once the stream starts.
+    setDeadline(250);
+    setElapsedSeconds(0);
+    setTimeoutSeconds(240);
+    setGenerationStage(lastStage);
     setError("");
     setErrorStage("");
     setResult(null);
@@ -151,17 +194,27 @@ export default function Home() {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/api/demo/generate/`, {
+      const response = await fetch(`${API_BASE}/api/demo/generate/stream/`, {
         method: "POST",
         body,
+        signal: controller.signal,
       });
 
-      const payload = (await response.json()) as DemoResponse;
+      const payload = await readGenerationResponse<NonNullable<DemoResponse["data"]>>(response, (event) => {
+        if (event.type === "started" && typeof event.timeout_seconds === "number" && event.timeout_seconds > 0) {
+          setTimeoutSeconds(event.timeout_seconds);
+          setDeadline(event.timeout_seconds + 10);
+        }
+        if (event.stage) {
+          lastStage = event.stage;
+          setGenerationStage(event.stage);
+        }
+      });
 
       if (!response.ok || !payload.success || !payload.data) {
         setError(
           payload.error ||
-            "The generation did not complete. Check the backend logs and try again.",
+            "The generation did not complete. Please try again.",
         );
         setErrorStage(payload.stage || "");
         return;
@@ -169,12 +222,19 @@ export default function Home() {
 
       setResult(payload.data);
     } catch (requestError) {
+      setErrorStage(lastStage);
       setError(
-        requestError instanceof Error
+        controller.signal.aborted
+          ? timedOut
+            ? "Generation took too long and was stopped. Please try again."
+            : "Generation cancelled. You can try again when ready."
+          : requestError instanceof Error
           ? requestError.message
           : "Could not reach the Yo-kai Mail backend.",
       );
     } finally {
+      clearTimeout(deadlineTimer!);
+      if (activeRequest.current === controller) activeRequest.current = null;
       setLoading(false);
     }
   }
@@ -407,7 +467,7 @@ export default function Home() {
             {error && (
               <div className="error-box">
                 <strong>
-                  {errorStage ? `Stopped at ${errorStage}` : "Generation failed"}
+                  {errorStage ? `Stopped at: ${GENERATION_STAGES[errorStage] ?? errorStage}` : "Generation failed"}
                 </strong>
                 <span>{error}</span>
               </div>
@@ -428,9 +488,15 @@ export default function Home() {
             </button>
 
             {loading && (
-              <div className="loading-copy">
-                Yo-kai is running the complete generation pipeline. Brand
-                analysis and AI composition can take a little while.
+              <div className="loading-copy" role="status" aria-live="polite">
+                <strong>{GENERATION_STAGES[generationStage] ?? "Building your email"}…</strong>
+                <p>
+                  {Math.floor(elapsedSeconds / 60)}m {elapsedSeconds % 60}s elapsed.
+                  {" "}Generation stops after {Math.ceil(timeoutSeconds / 60)} minutes if a provider cannot finish.
+                </p>
+                <button className="secondary-button" type="button" onClick={() => activeRequest.current?.abort()}>
+                  Cancel generation
+                </button>
               </div>
             )}
 
@@ -633,7 +699,7 @@ export default function Home() {
                 {result.render.preview_asset_diagnostics.some(
                   (asset) => asset.status === "unavailable",
                 )
-                  ? "One or more images could not be embedded for preview because the source host refused access."
+                  ? "Some preview images could not be cached in time. The email retains their original image URLs."
                   : "Images used by this preview were fetched and embedded temporarily for display."}
               </p>
             </div>

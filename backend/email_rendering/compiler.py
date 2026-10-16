@@ -4,6 +4,8 @@ from pathlib import Path
 
 from django.conf import settings
 
+from core.generation_budget import request_timeout
+
 
 class MJMLCompilerError(RuntimeError):
     def __init__(self, message: str, details: str | None = None):
@@ -38,7 +40,7 @@ def compile_mjml_to_html(mjml: str) -> dict:
             encoding="utf-8",
             errors="strict",
             capture_output=True,
-            timeout=settings.MJML_COMPILE_TIMEOUT_SECONDS,
+            timeout=request_timeout(settings.MJML_COMPILE_TIMEOUT_SECONDS),
             check=False,
         )
     except FileNotFoundError as exc:

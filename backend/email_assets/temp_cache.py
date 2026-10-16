@@ -106,9 +106,10 @@ def _detect_asset_mime(
     return None
 
 
-def _fetch_public_image(url: str) -> tuple[bytes, str, str]:
+def _fetch_public_image(url: str, *, timeout: float = 8) -> tuple[bytes, str, str]:
     current_url = url
     opener = urllib.request.build_opener(_NoRedirect())
+    deadline = time.monotonic() + timeout
 
     for _ in range(MAX_REDIRECTS + 1):
         if not _safe_public_http_url(current_url):
@@ -129,7 +130,10 @@ def _fetch_public_image(url: str) -> tuple[bytes, str, str]:
         )
 
         try:
-            response = opener.open(request, timeout=8)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise EmailAssetCacheError("Preview image download timed out.")
+            response = opener.open(request, timeout=remaining)
         except urllib.error.HTTPError as exc:
             if exc.code in {301, 302, 303, 307, 308}:
                 location = exc.headers.get("Location")
@@ -151,9 +155,22 @@ def _fetch_public_image(url: str) -> tuple[bytes, str, str]:
                 f"Image request failed: {exc.reason}"
             ) from exc
 
-        content_type = response.headers.get("Content-Type")
-        max_bytes = settings.EMAIL_ASSET_MAX_IMAGE_BYTES
-        body = response.read(max_bytes + 1)
+        try:
+            content_type = response.headers.get("Content-Type")
+            max_bytes = settings.EMAIL_ASSET_MAX_IMAGE_BYTES
+            chunks = []
+            size = 0
+            while size <= max_bytes:
+                if time.monotonic() >= deadline:
+                    raise EmailAssetCacheError("Preview image download timed out.")
+                chunk = response.read1(min(65536, max_bytes + 1 - size))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+            body = b"".join(chunks)
+        finally:
+            response.close()
 
         if len(body) > max_bytes:
             raise EmailAssetCacheError(
@@ -247,7 +264,7 @@ def read_cached_email_asset(
     )
 
 
-def get_or_cache_remote_image(url: str) -> CachedEmailAsset:
+def get_or_cache_remote_image(url: str, *, timeout: float = 8) -> CachedEmailAsset:
     now = int(time.time())
     index_path = _url_index_path(url)
     index = _read_json(index_path)
@@ -263,7 +280,7 @@ def get_or_cache_remote_image(url: str) -> CachedEmailAsset:
             except EmailAssetCacheError:
                 pass
 
-    body, mime_type, resolved_url = _fetch_public_image(url)
+    body, mime_type, resolved_url = _fetch_public_image(url, timeout=timeout)
     cache_key = hashlib.sha256(body).hexdigest()
     extension = MIME_EXTENSIONS.get(mime_type, ".bin")
     filename = f"yokai-{cache_key[:16]}{extension}"
