@@ -1,4 +1,16 @@
+import re
+from urllib.parse import urlsplit
+
 from .schemas import AssetDescriptor, ContentPlan, FactLedger
+
+
+def _image_identity(url: str) -> str:
+    parsed = urlsplit(url)
+    # Adobe Scene7 preset paths can expose one source photo at several sizes.
+    # Deduplicate those renditions, while preserving genuinely distinct photos.
+    if "/is/image/" in parsed.path and re.search(r"/PP_[A-Z_]+/", parsed.path):
+        return f"{parsed.netloc}/{parsed.path.rsplit('/', 1)[-1]}"
+    return url
 
 
 def _append_asset(
@@ -15,7 +27,10 @@ def _append_asset(
         return
 
     url = url.strip()
-    if asset_id in seen_ids or url in seen_urls:
+    if not url.startswith(("https://", "http://")):
+        return
+    identity = _image_identity(url)
+    if asset_id in seen_ids or identity in seen_urls:
         return
 
     asset = AssetDescriptor(
@@ -26,7 +41,7 @@ def _append_asset(
     )
     assets.append(asset)
     seen_ids.add(asset_id)
-    seen_urls.add(url)
+    seen_urls.add(identity)
 
 
 def build_asset_inventory(
@@ -56,6 +71,11 @@ def build_asset_inventory(
         )
 
     brand_assets = brand_profile.get("assets") or {}
+    primary_image = brand_assets.get("og_image")
+    if primary_image:
+        for candidate in brand_assets.get("hero_candidates") or []:
+            if isinstance(candidate, str) and candidate != primary_image and _image_identity(candidate) == _image_identity(primary_image):
+                primary_image = candidate
 
     _append_asset(
         assets,
@@ -73,13 +93,13 @@ def build_asset_inventory(
         seen_urls,
         asset_id="og_image",
         kind="og",
-        url=brand_assets.get("og_image"),
+        url=primary_image,
         source="brand_profile",
     )
 
     hero_index = 1
     for url in brand_assets.get("hero_candidates") or []:
-        if not isinstance(url, str) or not url.strip() or url.strip() in seen_urls:
+        if not isinstance(url, str) or not url.strip() or _image_identity(url.strip()) in seen_urls:
             continue
 
         _append_asset(
@@ -197,6 +217,9 @@ def normalize_email_design(
 ):
     allowed_asset_ids = {asset.asset_id for asset in asset_inventory}
     authoritative_url = fact_ledger.authoritative_destination_url
+    asset_urls = {asset.asset_id: asset.url for asset in asset_inventory}
+    used_images: set[str] = set()
+    logo_ids = {asset.asset_id for asset in asset_inventory if asset.kind == "logo"}
 
     seen_ids: set[str] = set()
     normalized_sections = []
@@ -205,6 +228,14 @@ def normalize_email_design(
         sorted(design.sections, key=lambda item: item.order),
         start=1,
     ):
+        if (
+            section.type == "hero"
+            and len(design.sections) > 1
+            and (section.headline or "").strip().casefold() == (fact_ledger.brand_name or "").strip().casefold()
+            and not section.body and not section.cta
+            and all(asset_id in logo_ids for asset_id in section.asset_ids)
+        ):
+            continue
         section.order = index
 
         if section.id in seen_ids:
@@ -216,11 +247,13 @@ def normalize_email_design(
             section.id = candidate_id
         seen_ids.add(section.id)
 
-        section.asset_ids = [
-            asset_id
-            for asset_id in section.asset_ids
-            if asset_id in allowed_asset_ids
-        ]
+        section_images = []
+        for asset_id in section.asset_ids:
+            url = asset_urls.get(asset_id)
+            if url and url not in used_images:
+                section_images.append(asset_id)
+                used_images.add(url)
+        section.asset_ids = section_images
 
         if section.cta is not None:
             section.cta.url = authoritative_url
@@ -234,6 +267,13 @@ def normalize_email_design(
 
         normalized_sections.append(section)
 
+    for index, section in enumerate(normalized_sections, start=1):
+        section.order = index
+    # Product emails should offer a primary action next to the main story.
+    hero = next((section for section in normalized_sections if section.type == "hero"), None)
+    primary_cta = next((section.cta for section in normalized_sections if section.cta), None)
+    if fact_ledger.product_name and hero is not None and hero.cta is None:
+        hero.cta = primary_cta
     design.sections = normalized_sections
 
     # Variants share the same application-owned asset and CTA constraints.
@@ -361,6 +401,27 @@ def repair_email_design_payload(
 
         section_type = section.get("type")
         section_id = section.get("id") or f"section_{index + 1}"
+
+        items = section.get("items")
+        bare_feature_labels = (
+            section_type in {"product_feature", "benefits"}
+            and not _payload_has_text(section.get("body"))
+            and isinstance(items, list) and bool(items)
+            and all(
+                isinstance(item, dict)
+                and not _payload_has_text(item.get("body"))
+                and not item.get("asset_id") and not item.get("cta")
+                for item in items
+            )
+        )
+        if bare_feature_labels:
+            message = trusted_message(section_type)
+            if message:
+                section["body"] = message
+                section["items"] = []
+                actions.append(
+                    f"{section_id}: replaced bare feature labels with ContentPlan copy."
+                )
 
         if section_type == "hero" and not _payload_has_text(
             section.get("headline")

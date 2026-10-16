@@ -46,6 +46,7 @@ class DemoGenerateView(APIView):
             run = GenerationRun(
                 generate_phase1_demo,
                 url=serializer.validated_data["url"],
+                refresh_website=serializer.validated_data["refresh_website"],
                 reference_image=image,
                 additional_instructions=serializer.validated_data.get(
                     "additional_instructions",

@@ -205,6 +205,18 @@ def sample_content_plan():
 
 
 class AssetInventoryTests(APITestCase):
+    def test_source_photo_renditions_do_not_become_repeated_images(self):
+        profile = sample_brand_profile()
+        profile["assets"] = {
+            "primary_logo": "data:image/svg+xml,<svg/>",
+            "og_image": "https://example.com/is/image/shop/1/PP_VP_L/product.jpg?wid=1200",
+            "hero_candidates": ["https://example.com/is/image/shop/1/PP_VP_M/product.jpg?wid=750"],
+        }
+        assets = build_asset_inventory(profile)
+        self.assertEqual(len(assets), 1)
+        self.assertEqual(assets[0].asset_id, "og_image")
+        self.assertIn("PP_VP_M", assets[0].url)
+
     def test_brand_assets_are_deduplicated_and_given_stable_ids(self):
         assets = build_asset_inventory(sample_brand_profile())
 
@@ -372,6 +384,57 @@ class FactLedgerTests(APITestCase):
 
 
 class GeminiEmailDesignComposerTests(APITestCase):
+    def test_bare_feature_labels_use_approved_product_story_without_an_ai_retry(self):
+        plan = sample_content_plan()
+        approved_copy = "A compact handbag with a removable pouch."
+        plan["content_hierarchy"].append({
+            "order": 3, "role": "product_feature", "objective": "Explain the product",
+            "key_message": approved_copy, "recommended_section_type": "product_feature",
+            "preferred_asset_role": "none",
+        })
+        design = sample_email_design()
+        feature = dict(design["sections"][0])
+        feature.update({"id": "feature", "type": "product_feature", "order": 2,
+                        "body": None, "asset_ids": [], "items": [{"title": "Vague label"}]})
+        design["sections"].insert(1, feature)
+        client = Mock()
+        client.interactions.create.return_value = SimpleNamespace(output_text=json.dumps(design))
+        result = GeminiEmailDesignComposer(client=client).compose(
+            brand_profile=sample_brand_profile(), reference_design_spec=sample_reference_spec(),
+            content_plan=plan,
+            asset_inventory=[asset.model_dump(mode="json") for asset in build_asset_inventory(sample_brand_profile())],
+            fact_ledger=sample_fact_ledger(),
+        )
+        section = next(section for section in result["email_design"]["sections"] if section["id"] == "feature")
+        self.assertEqual(section["body"], approved_copy)
+        self.assertEqual(section["items"], [])
+        self.assertEqual(client.interactions.create.call_count, 1)
+
+    @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
+    def test_runaway_feature_copy_is_repaired_and_repeated_photos_are_removed(self):
+        invalid = sample_email_design()
+        invalid["sections"][0]["headline"] = "Repeated claim " * 1000
+        repaired = sample_email_design()
+        repaired["sections"][1]["asset_ids"] = ["og_image"]
+        client = Mock()
+        client.interactions.create.side_effect = [
+            SimpleNamespace(output_text=json.dumps(invalid)),
+            SimpleNamespace(output_text=json.dumps(repaired)),
+        ]
+        result = GeminiEmailDesignComposer(client=client).compose(
+            brand_profile=sample_brand_profile(),
+            reference_design_spec=sample_reference_spec(),
+            content_plan=sample_content_plan(),
+            asset_inventory=[asset.model_dump(mode="json") for asset in build_asset_inventory(sample_brand_profile())],
+            fact_ledger=sample_fact_ledger(),
+        )
+        self.assertEqual(client.interactions.create.call_count, 2)
+        provider_schema = client.interactions.create.call_args.kwargs["response_format"]["schema"]
+        self.assertNotIn("maxLength", json.dumps(provider_schema))
+        self.assertIn("Maximum 160 characters", json.dumps(provider_schema))
+        self.assertEqual(result["email_design"]["sections"][1]["asset_ids"], [])
+        self.assertLessEqual(len(result["email_design"]["sections"][0]["headline"]), 160)
+
     @override_settings(GEMINI_GENERATION_MODEL="gemini-test")
     def test_design_is_schema_validated_and_application_normalized(self):
         client = Mock()

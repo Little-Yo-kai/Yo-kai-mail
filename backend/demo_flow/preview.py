@@ -1,7 +1,5 @@
 import base64
-import html
 import logging
-import re
 import time
 from contextvars import copy_context
 from queue import Empty, SimpleQueue
@@ -10,12 +8,12 @@ from threading import BoundedSemaphore, Thread
 from django.conf import settings
 
 from core.generation_budget import current_budget
+from email_assets.html import image_sources, replace_image_sources
 from email_assets.temp_cache import (
     cleanup_expired_email_assets,
     get_or_cache_remote_image,
 )
 
-IMAGE_SRC_PATTERN = re.compile(r'src="([^"]+)"', re.IGNORECASE)
 logger = logging.getLogger(__name__)
 _preview_slots = BoundedSemaphore(4)
 
@@ -38,12 +36,11 @@ def build_preview_html(
         urls = {item.get("url") for item in asset_inventory if isinstance(item, dict)}
         diagnostics = [
             {
-                "url": html.unescape(match.group(1)),
+                "url": source_url,
                 "status": "unavailable",
                 "reason": "Preview embedding did not finish in time. Original image URL retained.",
             }
-            for match in IMAGE_SRC_PATTERN.finditer(html_document)
-            if html.unescape(match.group(1)) in urls
+            for source_url in sorted(image_sources(html_document).intersection(urls))
         ]
         return html_document, diagnostics, []
 
@@ -92,14 +89,12 @@ def _build_preview_html(*, html_document, asset_inventory, deadline):
         if isinstance(item, dict) and isinstance(item.get("url"), str)
     }
 
-    source_urls = {
-        html.unescape(match.group(1))
-        for match in IMAGE_SRC_PATTERN.finditer(html_document)
-    }
+    source_urls = image_sources(html_document)
 
     replacements: dict[str, str] = {}
     diagnostics: list[dict] = []
     cached_assets: list[dict] = []
+    inline_bytes = 0
 
     for source_url in sorted(source_urls.intersection(asset_urls)):
         try:
@@ -113,7 +108,10 @@ def _build_preview_html(*, html_document, asset_inventory, deadline):
                 )
             if budget is not None:
                 budget.check()
-            cached = get_or_cache_remote_image(source_url, timeout=min(2, remaining))
+            cached = get_or_cache_remote_image(source_url, timeout=min(6, remaining))
+            if inline_bytes + len(cached.body) > settings.EMAIL_ASSET_MAX_INLINE_BYTES:
+                raise ValueError("Email images exceed the inline attachment size limit.")
+            inline_bytes += len(cached.body)
             encoded = base64.b64encode(cached.body).decode("ascii")
             replacements[source_url] = f"data:{cached.mime_type};base64,{encoded}"
 
@@ -139,13 +137,5 @@ def _build_preview_html(*, html_document, asset_inventory, deadline):
                 }
             )
 
-    def replace_src(match):
-        raw_value = match.group(1)
-        decoded_value = html.unescape(raw_value)
-        replacement = replacements.get(decoded_value)
-        if not replacement:
-            return match.group(0)
-        return f'src="{replacement}"'
-
-    preview_html = IMAGE_SRC_PATTERN.sub(replace_src, html_document)
+    preview_html = replace_image_sources(html_document, replacements)
     return preview_html, diagnostics, cached_assets

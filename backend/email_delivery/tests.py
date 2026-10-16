@@ -1,3 +1,4 @@
+import base64
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -130,7 +131,7 @@ class ResendEmailServiceTests(APITestCase):
         )
         self.assertEqual(
             params["attachments"][0]["content"],
-            list(body),
+            base64.b64encode(body).decode("ascii"),
         )
         self.assertEqual(result["inline_asset_count"], 1)
         self.assertEqual(result["inline_asset_bytes"], len(body))

@@ -2,10 +2,15 @@
 
 import base64
 import os
+import tempfile
 from unittest import skipUnless
 
-from campaigns.test_integrations import sample_brand_profile, sample_email_design
 from django.test import SimpleTestCase
+
+from campaigns.test_integrations import sample_brand_profile, sample_email_design
+from demo_flow.preview import build_preview_html
+from email_assets.temp_cache import cache_image_bytes
+from email_assets.tests import image_bytes
 
 from .compiler import compile_mjml_to_html
 from .renderer import render_email_to_mjml
@@ -13,6 +18,31 @@ from .screenshot import capture_email_screenshot
 
 
 class EmailRuntimeSmokeTests(SimpleTestCase):
+    @skipUnless(os.environ.get("EMAIL_BROWSER_SMOKE") == "1", "Enable browser smoke checks")
+    def test_images_really_load_on_desktop_and_mobile(self):
+        with tempfile.TemporaryDirectory() as directory, self.settings(EMAIL_ASSET_CACHE_DIR=directory):
+            url = "https://example.com/product.png"
+            cache_image_bytes(image_bytes(size=(600, 750)), source_url=url)
+            design = sample_email_design()
+            design["sections"][0]["asset_ids"] = ["product"]
+            assets = [{"asset_id": "product", "kind": "product", "url": url, "source": "request"}]
+            rendered = render_email_to_mjml(
+                brand_profile=sample_brand_profile(), email_design=design,
+                asset_inventory=assets,
+            )
+            compiled = compile_mjml_to_html(rendered["mjml"])
+            preview, diagnostics, cached = build_preview_html(
+                html_document=compiled["html"], asset_inventory=assets,
+            )
+            self.assertEqual(len(cached), 1)
+            self.assertEqual(diagnostics[0]["status"], "embedded")
+            for width in (760, 375):
+                with self.subTest(width=width):
+                    screenshot = capture_email_screenshot(preview, viewport_width=width)
+                    self.assertEqual(screenshot["image_diagnostics"]["total"], 1)
+                    self.assertEqual(screenshot["image_diagnostics"]["loaded"], 1)
+                    self.assertEqual(screenshot["image_diagnostics"]["broken"], [])
+
     def render(self):
         rendered = render_email_to_mjml(
             brand_profile=sample_brand_profile(),

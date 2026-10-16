@@ -1,8 +1,20 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { readGenerationResponse } from "../lib/generation";
+import {
+  EmailImageEditor,
+  type EditableEmailDesign,
+  type EmailAsset,
+} from "../components/email-image-editor";
 
 type DemoResponse = {
   success: boolean;
@@ -11,6 +23,10 @@ type DemoResponse = {
   details?: string;
   data?: {
     mode: "uploaded_reference" | "automatic_reference";
+    performance?: {
+      total_seconds: number;
+      reused_stages: string[];
+    };
     brand_profile: {
       identity?: {
         name?: string;
@@ -22,16 +38,8 @@ type DemoResponse = {
       name?: string;
       recipe_family?: string;
     };
-    email_design: {
-      subject: string;
-      preheader: string;
-      sections: Array<{ id: string; type: string }>;
-    };
-    asset_inventory: Array<{
-      asset_id: string;
-      kind: string;
-      url: string;
-    }>;
+    email_design: EditableEmailDesign;
+    asset_inventory: EmailAsset[];
     render: {
       html: string;
       preview_html: string;
@@ -54,6 +62,7 @@ type DemoResponse = {
       mjml: string;
       compiler_errors: unknown[];
       rendered_sections: number;
+      delivery_ready?: boolean;
     };
   };
 };
@@ -125,6 +134,7 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const [reference, setReference] = useState<File | null>(null);
   const [instructions, setInstructions] = useState("");
+  const [refreshWebsite, setRefreshWebsite] = useState(false);
   const [result, setResult] = useState<DemoResponse["data"] | null>(null);
   const [error, setError] = useState("");
   const [errorStage, setErrorStage] = useState("");
@@ -137,21 +147,59 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [recipient, setRecipient] = useState("");
   const [sendingTest, setSendingTest] = useState(false);
-  const [deliveryReceipt, setDeliveryReceipt] =
-    useState<NonNullable<DeliveryResponse["data"]> | null>(null);
+  const [deliveryReceipt, setDeliveryReceipt] = useState<NonNullable<
+    DeliveryResponse["data"]
+  > | null>(null);
   const [deliveryEvent, setDeliveryEvent] = useState("");
   const [checkingDelivery, setCheckingDelivery] = useState(false);
   const [sendError, setSendError] = useState("");
+  const [pendingEdits, setPendingEdits] = useState(false);
 
   const brandName = result?.brand_profile.identity?.name || "Generated email";
   const fileBase = useMemo(() => slugify(brandName), [brandName]);
+  const imagesReady =
+    result?.render.delivery_ready ??
+    !result?.render.preview_asset_diagnostics.some(
+      (asset) => asset.status === "unavailable",
+    );
+
+  async function applyDesign(
+    design: EditableEmailDesign,
+    assets: EmailAsset[],
+  ) {
+    if (!result) return;
+    const response = await fetch(`${API_BASE}/api/demo/render/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        brand_profile: result.brand_profile,
+        email_design: design,
+        asset_inventory: assets,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.success)
+      throw new Error(payload.error || "Could not apply design changes.");
+    setResult({
+      ...result,
+      email_design: design,
+      asset_inventory: assets,
+      render: payload.data,
+    });
+    setDeliveryReceipt(null);
+    setDeliveryEvent("");
+    setSendError("");
+  }
 
   useEffect(() => () => activeRequest.current?.abort(), []);
 
   useEffect(() => {
     if (!loading) return;
     const started = Date.now();
-    const timer = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    const timer = window.setInterval(
+      () => setElapsedSeconds(Math.floor((Date.now() - started) / 1000)),
+      1000,
+    );
     return () => window.clearInterval(timer);
   }, [loading]);
 
@@ -186,6 +234,7 @@ export default function Home() {
 
     const body = new FormData();
     body.append("url", url.trim());
+    body.append("refresh_website", String(refreshWebsite));
     if (reference) {
       body.append("reference_image", reference);
     }
@@ -200,8 +249,14 @@ export default function Home() {
         signal: controller.signal,
       });
 
-      const payload = await readGenerationResponse<NonNullable<DemoResponse["data"]>>(response, (event) => {
-        if (event.type === "started" && typeof event.timeout_seconds === "number" && event.timeout_seconds > 0) {
+      const payload = await readGenerationResponse<
+        NonNullable<DemoResponse["data"]>
+      >(response, (event) => {
+        if (
+          event.type === "started" &&
+          typeof event.timeout_seconds === "number" &&
+          event.timeout_seconds > 0
+        ) {
           setTimeoutSeconds(event.timeout_seconds);
           setDeadline(event.timeout_seconds + 10);
         }
@@ -213,8 +268,7 @@ export default function Home() {
 
       if (!response.ok || !payload.success || !payload.data) {
         setError(
-          payload.error ||
-            "The generation did not complete. Please try again.",
+          payload.error || "The generation did not complete. Please try again.",
         );
         setErrorStage(payload.stage || "");
         return;
@@ -229,8 +283,8 @@ export default function Home() {
             ? "Generation took too long and was stopped. Please try again."
             : "Generation cancelled. You can try again when ready."
           : requestError instanceof Error
-          ? requestError.message
-          : "Could not reach the Yo-kai Mail backend.",
+            ? requestError.message
+            : "Could not reach the Yo-kai Mail backend.",
       );
     } finally {
       clearTimeout(deadlineTimer!);
@@ -254,14 +308,14 @@ export default function Home() {
 
   async function copyHtml() {
     if (!result) return;
-    await navigator.clipboard.writeText(result.render.html);
+    await navigator.clipboard.writeText(result.render.preview_html);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   }
 
   async function sendTestEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!result || !recipient.trim()) return;
+    if (!result || !recipient.trim() || !imagesReady || pendingEdits) return;
 
     setSendingTest(true);
     setDeliveryReceipt(null);
@@ -311,7 +365,6 @@ export default function Home() {
       setSendingTest(false);
     }
   }
-
 
   async function checkDeliveryStatus() {
     if (!deliveryReceipt) return;
@@ -377,8 +430,8 @@ export default function Home() {
             <h1>Turn a website into a campaign-ready email.</h1>
             <p className="lede">
               Paste a public website. Yo-kai studies the brand, chooses a design
-              direction, plans the campaign and renders a responsive email.
-              Add a reference screenshot only when you want to guide the visual
+              direction, plans the campaign and renders a responsive email. Add
+              a reference screenshot only when you want to guide the visual
               direction yourself.
             </p>
 
@@ -467,11 +520,29 @@ export default function Home() {
             {error && (
               <div className="error-box">
                 <strong>
-                  {errorStage ? `Stopped at: ${GENERATION_STAGES[errorStage] ?? errorStage}` : "Generation failed"}
+                  {errorStage
+                    ? `Stopped at: ${GENERATION_STAGES[errorStage] ?? errorStage}`
+                    : "Generation failed"}
                 </strong>
                 <span>{error}</span>
               </div>
             )}
+
+            <label className="refresh-option">
+              <input
+                type="checkbox"
+                checked={refreshWebsite}
+                disabled={loading}
+                onChange={(event) => setRefreshWebsite(event.target.checked)}
+              />
+              <span>
+                Refresh website analysis
+                <small>
+                  Use this after changing your website. Otherwise, recent
+                  analysis speeds up generation.
+                </small>
+              </span>
+            </label>
 
             <button className="primary-button" type="submit" disabled={loading}>
               {loading ? (
@@ -489,21 +560,28 @@ export default function Home() {
 
             {loading && (
               <div className="loading-copy" role="status" aria-live="polite">
-                <strong>{GENERATION_STAGES[generationStage] ?? "Building your email"}…</strong>
+                <strong>
+                  {GENERATION_STAGES[generationStage] ?? "Building your email"}…
+                </strong>
                 <p>
-                  {Math.floor(elapsedSeconds / 60)}m {elapsedSeconds % 60}s elapsed.
-                  {" "}Generation stops after {Math.ceil(timeoutSeconds / 60)} minutes if a provider cannot finish.
+                  {Math.floor(elapsedSeconds / 60)}m {elapsedSeconds % 60}s
+                  elapsed. Generation stops after{" "}
+                  {Math.ceil(timeoutSeconds / 60)} minutes if a provider cannot
+                  finish.
                 </p>
-                <button className="secondary-button" type="button" onClick={() => activeRequest.current?.abort()}>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => activeRequest.current?.abort()}
+                >
                   Cancel generation
                 </button>
               </div>
             )}
 
             <p className="demo-note">
-              Demo mode currently skips asset validation, visual critique and
-              automatic revision. Those remain required before Phase 1 is
-              considered complete.
+              Website images are prepared for preview and test delivery. You can
+              replace a photo or adjust its placement after generation.
             </p>
           </form>
         </section>
@@ -528,6 +606,13 @@ export default function Home() {
               <p className="eyebrow">GENERATED EMAIL</p>
               <h1>{result.email_design.subject}</h1>
               <p className="preheader">{result.email_design.preheader}</p>
+              {result.performance && (
+                <p className="generation-timing">
+                  Generated in {Math.round(result.performance.total_seconds)}s
+                  {result.performance.reused_stages.length > 0 &&
+                    " · Reused recent analysis"}
+                </p>
+              )}
             </div>
 
             <div className="result-meta">
@@ -570,7 +655,7 @@ export default function Home() {
                 onClick={() =>
                   downloadText(
                     `${fileBase}.html`,
-                    result.render.html,
+                    result.render.preview_html,
                     "text/html;charset=utf-8",
                   )
                 }
@@ -582,6 +667,14 @@ export default function Home() {
               </button>
             </div>
           </div>
+
+          <EmailImageEditor
+            apiBase={API_BASE}
+            design={result.email_design}
+            assets={result.asset_inventory}
+            onApply={applyDesign}
+            onDirtyChange={setPendingEdits}
+          />
 
           <div className="preview-stage">
             <div
@@ -618,10 +711,21 @@ export default function Home() {
                 onChange={(event) => setRecipient(event.target.value)}
                 disabled={sendingTest}
               />
-              <button type="submit" disabled={sendingTest}>
+              <button
+                type="submit"
+                disabled={sendingTest || !imagesReady || pendingEdits}
+              >
                 {sendingTest ? "Sending…" : "Send test email"}
               </button>
             </div>
+
+            {(!imagesReady || pendingEdits) && (
+              <p className="send-status error" role="status">
+                {pendingEdits
+                  ? "Apply your design changes before sending."
+                  : "Some images could not be downloaded. Replace or remove them in Images & layout, then apply changes before sending."}
+              </p>
+            )}
 
             {deliveryReceipt && (
               <div className="delivery-receipt">
@@ -641,9 +745,7 @@ export default function Home() {
                 </div>
                 <div>
                   <span className="delivery-label">Inline images</span>
-                  <strong>
-                    {deliveryReceipt.inline_asset_count} attached
-                  </strong>
+                  <strong>{deliveryReceipt.inline_asset_count} attached</strong>
                 </div>
                 <button
                   type="button"
@@ -656,16 +758,12 @@ export default function Home() {
               </div>
             )}
 
-            {sendError && (
-              <div className="send-status error">{sendError}</div>
-            )}
+            {sendError && <div className="send-status error">{sendError}</div>}
 
             <p className="send-test-note">
-              Yo-kai reuses the same temporary image cache used by the preview
-              and sends those images as inline CID attachments through Resend.
-              The Resend key never reaches the browser. With Resend's testing
-              sender, the provider may still restrict delivery to the account
-              owner's address until a sending domain is verified.
+              The images in your preview are included with the test email. If a
+              website blocks an image, upload a replacement above. Images are
+              kept temporarily for six hours; regenerate if they expire.
             </p>
           </form>
 
@@ -682,9 +780,7 @@ export default function Home() {
 
             <div className="summary-card">
               <span>Render</span>
-              <strong>
-                {result.render.rendered_sections} email sections
-              </strong>
+              <strong>{result.render.rendered_sections} email sections</strong>
               <p>
                 {result.render.compiler_errors.length === 0
                   ? "MJML compiled to responsive HTML without compiler errors."
@@ -699,7 +795,7 @@ export default function Home() {
                 {result.render.preview_asset_diagnostics.some(
                   (asset) => asset.status === "unavailable",
                 )
-                  ? "Some preview images could not be cached in time. The email retains their original image URLs."
+                  ? "Some images are unavailable. Replace or remove them before sending."
                   : "Images used by this preview were fetched and embedded temporarily for display."}
               </p>
             </div>

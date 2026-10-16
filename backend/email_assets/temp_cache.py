@@ -1,5 +1,8 @@
 import hashlib
+import io
 import json
+import os
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -8,9 +11,9 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 from django.conf import settings
+from PIL import Image, UnidentifiedImageError
 
 from email_rendering.screenshot import _detect_image_mime, _host_is_public
-
 
 MAX_REDIRECTS = 3
 CACHE_KEY_PATTERN_LENGTH = 64
@@ -20,7 +23,6 @@ MIME_EXTENSIONS = {
     "image/png": ".png",
     "image/gif": ".gif",
     "image/webp": ".webp",
-    "image/svg+xml": ".svg",
 }
 
 
@@ -98,8 +100,7 @@ def _detect_asset_mime(
     stripped = body.lstrip()
 
     if normalized == "image/svg+xml" and (
-        stripped.startswith(b"<svg")
-        or stripped.startswith(b"<?xml")
+        stripped.startswith((b"<svg", b"<?xml"))
     ):
         return "image/svg+xml"
 
@@ -139,10 +140,10 @@ def _fetch_public_image(url: str, *, timeout: float = 8) -> tuple[bytes, str, st
                 location = exc.headers.get("Location")
                 if not location:
                     raise EmailAssetCacheError(
-                        (
+
                             f"Image redirect returned HTTP {exc.code} "
                             "without Location."
-                        )
+
                     ) from exc
                 current_url = urljoin(current_url, location)
                 continue
@@ -214,12 +215,19 @@ def _read_json(path: Path) -> dict | None:
 
 
 def _write_json(path: Path, payload: dict) -> None:
-    temp_path = path.with_suffix(path.suffix + ".tmp")
-    temp_path.write_text(
-        json.dumps(payload, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    temp_path.replace(path)
+    _atomic_write(path, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+
+def _atomic_write(path: Path, body: bytes) -> None:
+    # Concurrent generations can normalize the same photo. Give each writer
+    # its own temporary file so one rename cannot remove another writer's file.
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(body)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def read_cached_email_asset(
@@ -251,6 +259,13 @@ def read_cached_email_asset(
             "Temporary email asset could not be read."
         ) from exc
 
+    if metadata.get("encoding_version") != 1:
+        return cache_image_bytes(
+            body,
+            source_url=source_url or metadata.get("source_url") or "",
+            resolved_url=metadata.get("resolved_url"),
+        )
+
     return CachedEmailAsset(
         cache_key=cache_key,
         source_url=source_url or metadata.get("source_url") or "",
@@ -280,8 +295,47 @@ def get_or_cache_remote_image(url: str, *, timeout: float = 8) -> CachedEmailAss
             except EmailAssetCacheError:
                 pass
 
-    body, mime_type, resolved_url = _fetch_public_image(url, timeout=timeout)
+    body, _mime_type, resolved_url = _fetch_public_image(url, timeout=timeout)
+    return cache_image_bytes(body, source_url=url, resolved_url=resolved_url)
+
+
+def cache_image_bytes(
+    body: bytes,
+    *,
+    source_url: str,
+    resolved_url: str | None = None,
+) -> CachedEmailAsset:
+    """Store validated raster bytes shared by preview, edits and CID delivery."""
+    if not body or len(body) > settings.EMAIL_ASSET_MAX_IMAGE_BYTES:
+        raise EmailAssetCacheError("Image is empty or exceeds the image size limit.")
+    try:
+        with Image.open(io.BytesIO(body)) as image:
+            image.verify()
+        with Image.open(io.BytesIO(body)) as image:
+            if image.width < 8 or image.height < 8:
+                raise EmailAssetCacheError("Tracking pixels and empty placeholders cannot be used as email images.")
+            if image.width * image.height > 30_000_000:
+                raise EmailAssetCacheError("Image dimensions are too large.")
+            image.load()
+            image.thumbnail((1600, 1600))
+            output = io.BytesIO()
+            if image.mode in {"RGBA", "LA"} or "transparency" in image.info:
+                image.convert("RGBA").save(output, format="PNG", optimize=True)
+                mime_type = "image/png"
+            else:
+                image.convert("RGB").save(output, format="JPEG", quality=88, optimize=True)
+                mime_type = "image/jpeg"
+            body = output.getvalue()
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
+        raise EmailAssetCacheError("File is not a supported, valid raster image.") from exc
+    if len(body) > settings.EMAIL_ASSET_MAX_IMAGE_BYTES:
+        raise EmailAssetCacheError("Converted image exceeds the image size limit.")
+
+    now = int(time.time())
     cache_key = hashlib.sha256(body).hexdigest()
+    url = source_url.replace("{cache_key}", cache_key)
+    resolved_url = resolved_url or url
+    index_path = _url_index_path(url)
     extension = MIME_EXTENSIONS.get(mime_type, ".bin")
     filename = f"yokai-{cache_key[:16]}{extension}"
 
@@ -290,11 +344,10 @@ def get_or_cache_remote_image(url: str, *, timeout: float = 8) -> CachedEmailAss
 
     body_path, metadata_path = _object_paths(cache_key)
     if not body_path.exists():
-        temp_body_path = body_path.with_suffix(".bin.tmp")
-        temp_body_path.write_bytes(body)
-        temp_body_path.replace(body_path)
+        _atomic_write(body_path, body)
 
     metadata = {
+        "encoding_version": 1,
         "cache_key": cache_key,
         "source_url": url,
         "resolved_url": resolved_url,

@@ -30,6 +30,12 @@ resume and Gemini's hidden SDK retries are disabled. The shared Gemini fallback
 handles 429/503 capacity errors with bounded attempts. Preview image caching has
 an eight-second budget and cannot discard a successfully compiled email.
 
+Repeat generations reuse recent website, brand, reference, and campaign-plan
+analysis while composing a fresh email. Uploaded references are analyzed alongside
+the website. The result reports generation time; **Refresh website analysis**
+bypasses reuse after a source change. See `backend/.env.example` for cache TTLs and
+optional Redis sharing across workers. Cache failures fall back to fresh work.
+
 `POST /api/demo/generate/` retains its JSON response. The page uses
 `POST /api/demo/generate/stream/` for newline-delimited JSON events: `started`,
 `progress`, `heartbeat`, then `result` or `error`. Streaming errors carry their

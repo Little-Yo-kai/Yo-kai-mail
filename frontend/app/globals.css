@@ -24,10 +24,19 @@ body {
   margin: 0;
   color: var(--ink);
   background:
-    radial-gradient(circle at 8% 0%, rgba(241, 90, 41, 0.08), transparent 28rem),
+    radial-gradient(
+      circle at 8% 0%,
+      rgba(241, 90, 41, 0.08),
+      transparent 28rem
+    ),
     var(--bg);
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
     sans-serif;
 }
 
@@ -231,7 +240,9 @@ main {
   background: white;
   color: var(--ink);
   outline: none;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .field textarea {
@@ -315,7 +326,9 @@ main {
   justify-content: center;
   gap: 12px;
   font-weight: 800;
-  transition: transform 140ms ease, opacity 140ms ease;
+  transition:
+    transform 140ms ease,
+    opacity 140ms ease;
 }
 
 .primary-button {
@@ -493,8 +506,7 @@ main {
     linear-gradient(45deg, #e8e4dc 25%, transparent 25%),
     linear-gradient(-45deg, #e8e4dc 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, #e8e4dc 75%),
-    linear-gradient(-45deg, transparent 75%, #e8e4dc 75%),
-    #f2eee7;
+    linear-gradient(-45deg, transparent 75%, #e8e4dc 75%), #f2eee7;
   background-size: 20px 20px;
   background-position:
     0 0,
@@ -716,7 +728,10 @@ main {
   padding: 0 16px;
   font-size: 12px;
   font-weight: 800;
-  transition: transform 140ms ease, opacity 140ms ease, background 140ms ease;
+  transition:
+    transform 140ms ease,
+    opacity 140ms ease,
+    background 140ms ease;
 }
 
 .contacts-primary {
@@ -1710,6 +1725,128 @@ main {
   }
 }
 
+.image-editor {
+  margin: 20px 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fffdf8;
+  padding: 22px;
+}
+
+.image-editor summary {
+  cursor: pointer;
+  font-size: 17px;
+  font-weight: 650;
+}
+.editor-subtitle {
+  margin-left: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.editor-help {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.image-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+.image-editor-section {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+.image-editor-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 34px;
+}
+.image-editor-heading > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.image-editor-heading strong {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.image-editor-section label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.image-editor-section select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--line);
+  padding: 10px;
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+.image-editor-section .image-upload-button {
+  display: block;
+  position: relative;
+  padding: 11px 8px;
+  border: 1px dashed #bbb8af;
+  border-radius: 7px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 12px;
+}
+.image-upload-button input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.image-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.image-editor-actions span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.image-editor-actions button {
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: white;
+  padding: 12px 20px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.image-editor-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 640px) {
+  .image-editor {
+    padding: 16px;
+  }
+  .editor-subtitle {
+    display: block;
+    margin: 8px 0 0;
+  }
+}
 
 .send-test-card {
   margin-top: 18px;
@@ -1808,7 +1945,6 @@ main {
     min-height: 46px;
   }
 }
-
 
 .send-test-heading {
   display: flex;
@@ -1911,4 +2047,29 @@ main {
   .delivery-receipt {
     grid-template-columns: 1fr;
   }
+}
+.refresh-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.refresh-option input {
+  margin-top: 3px;
+  accent-color: #243e35;
+}
+
+.refresh-option small {
+  display: block;
+  margin-top: 4px;
+  color: #68736d;
+  line-height: 1.5;
+}
+
+.generation-timing {
+  margin-top: 10px;
+  color: #587265;
+  font-size: 13px;
 }

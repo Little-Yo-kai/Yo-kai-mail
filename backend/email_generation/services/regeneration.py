@@ -3,15 +3,20 @@ import json
 
 from django.conf import settings
 from google import genai
-from core.gemini_client import create_gemini_client
 from pydantic import ValidationError
 
-from core.ai_fallback import call_with_model_fallback
 from brand_intelligence.schemas import BrandProfile
+from core.ai_fallback import call_with_model_fallback
+from core.gemini_client import create_gemini_client, gemini_json_schema
 from reference_design.schemas import ReferenceDesignSpec
 
 from ..builders import normalize_email_design
-from ..schemas import AssetDescriptor, ContentPlan, EmailDesign, EmailSection, FactLedger
+from ..schemas import (
+    AssetDescriptor,
+    ContentPlan,
+    EmailSection,
+    FactLedger,
+)
 from .composer import EmailDesignGenerationError
 from .validation import EmailDesignContractError, validate_email_design_contract
 
@@ -97,7 +102,7 @@ class GeminiSectionRegenerator:
                     "type": "text",
                     "mime_type": "application/json",
                     # A standalone schema includes all nested CTA/style defs.
-                    "schema": EmailSection.model_json_schema(),
+                    "schema": gemini_json_schema(EmailSection),
                 },
             )
             output_text = getattr(interaction, "output_text", None)

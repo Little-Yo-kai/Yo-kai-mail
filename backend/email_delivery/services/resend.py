@@ -1,17 +1,16 @@
+import base64
 import hashlib
-import html as html_lib
-import re
+import time
 
 import resend
 from django.conf import settings
 
+from email_assets.html import image_sources, replace_image_sources
 from email_assets.temp_cache import (
     EmailAssetCacheError,
+    get_or_cache_remote_image,
     read_cached_email_asset,
 )
-
-
-IMAGE_SRC_PATTERN = re.compile(r'src="([^"]+)"', re.IGNORECASE)
 
 
 class ResendNotConfiguredError(RuntimeError):
@@ -38,7 +37,7 @@ def _default_idempotency_key(
     html: str,
 ) -> str:
     digest = hashlib.sha256(
-        f"{to}\n{subject}\n{html}".encode("utf-8")
+        f"{to}\n{subject}\n{html}".encode()
     ).hexdigest()
     return f"yo-kai-demo/{digest}"
 
@@ -48,10 +47,9 @@ def _prepare_inline_assets(
     html_document: str,
     cached_asset_refs: list[dict],
 ) -> tuple[str, list[dict], list[dict]]:
-    source_urls = {
-        html_lib.unescape(match.group(1))
-        for match in IMAGE_SRC_PATTERN.finditer(html_document)
-    }
+    source_urls = image_sources(html_document)
+    if len(source_urls) > settings.EMAIL_ASSET_MAX_INLINE_COUNT:
+        raise ResendDeliveryError("Too many inline images for one email.")
 
     replacement_map: dict[str, str] = {}
     attachments: list[dict] = []
@@ -59,7 +57,25 @@ def _prepare_inline_assets(
     attachment_by_cache_key: dict[str, str] = {}
     total_bytes = 0
 
-    for item in cached_asset_refs:
+    supplied_urls = {item["source_url"] for item in cached_asset_refs}
+    refs = list(cached_asset_refs)
+    deadline = time.monotonic() + 10
+    # A missing client manifest must not silently turn an image email into
+    # a hotlinked email. Campaign delivery also uses this path.
+    for source_url in sorted(source_urls - supplied_urls):
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise EmailAssetCacheError("Image download time limit reached.")
+            cached = get_or_cache_remote_image(source_url, timeout=min(5, remaining))
+        except (EmailAssetCacheError, OSError, ValueError) as exc:
+            raise ResendDeliveryError(
+                "An email image could not be attached. Replace the image or regenerate before sending.",
+                details=str(exc),
+            ) from exc
+        refs.append({"cache_key": cached.cache_key, "source_url": source_url})
+
+    for item in refs:
         cache_key = item["cache_key"]
         source_url = item["source_url"]
 
@@ -77,9 +93,13 @@ def _prepare_inline_assets(
                 details=str(exc),
             ) from exc
 
+        cache_key = cached.cache_key
+
         cid = attachment_by_cache_key.get(cache_key)
 
         if cid is None:
+            if len(attachments) >= settings.EMAIL_ASSET_MAX_INLINE_COUNT:
+                raise ResendDeliveryError("Too many inline images for one email.")
             total_bytes += len(cached.body)
             if total_bytes > settings.EMAIL_ASSET_MAX_INLINE_BYTES:
                 raise ResendDeliveryError(
@@ -95,7 +115,7 @@ def _prepare_inline_assets(
             attachments.append(
                 {
                     "filename": cached.filename,
-                    "content": list(cached.body),
+                    "content": base64.b64encode(cached.body).decode("ascii"),
                     "content_type": cached.mime_type,
                     "content_id": cid,
                 }
@@ -112,15 +132,7 @@ def _prepare_inline_assets(
             }
         )
 
-    def replace_src(match):
-        raw_value = match.group(1)
-        decoded_value = html_lib.unescape(raw_value)
-        replacement = replacement_map.get(decoded_value)
-        if not replacement:
-            return match.group(0)
-        return f'src="{replacement}"'
-
-    delivery_html = IMAGE_SRC_PATTERN.sub(replace_src, html_document)
+    delivery_html = replace_image_sources(html_document, replacement_map)
     return delivery_html, attachments, inline_manifest
 
 
@@ -211,7 +223,7 @@ class ResendEmailService:
             "inline_assets": inline_manifest,
             "inline_asset_count": len(attachments),
             "inline_asset_bytes": sum(
-                len(item["content"]) for item in attachments
+                {item["content_id"]: item["bytes"] for item in inline_manifest}.values()
             ),
         }
 
