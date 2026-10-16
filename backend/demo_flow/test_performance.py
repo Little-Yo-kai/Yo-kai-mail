@@ -92,6 +92,9 @@ class GenerationPerformanceTests(SimpleTestCase):
             self.generate()
         self.assertEqual(self.brand.return_value.analyze.call_count, 2)
         self.generate(refresh_website=True)
+        self.firecrawl.return_value.scrape.assert_called_with(
+            "https://example.com", max_age_ms=0,
+        )
         self.assertEqual(self.firecrawl.return_value.scrape.call_count, 2)
         self.assertEqual(self.brand.return_value.analyze.call_count, 3)
         self.generate(url="https://example.com/other")
@@ -106,7 +109,7 @@ class GenerationPerformanceTests(SimpleTestCase):
             self.assertTrue(release.wait(2))
             return sample_reference_spec()
 
-        def scrape(url):
+        def scrape(url, **kwargs):
             self.assertTrue(
                 entered.wait(1), "Reference was not started alongside website reading"
             )

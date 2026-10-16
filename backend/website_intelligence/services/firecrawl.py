@@ -36,13 +36,15 @@ class FirecrawlService:
             max_retries=1,
         )
 
-    def scrape(self, url: str):
+    def scrape(self, url: str, *, max_age_ms: int | None = None):
         timeout = request_timeout(settings.FIRECRAWL_REQUEST_TIMEOUT_SECONDS)
+        cache_options = {"max_age": max_age_ms} if max_age_ms is not None else {}
         result = self.client.scrape(
             url,
             formats=self.FORMATS,
             timeout=max(1, int((timeout - min(1, timeout / 10)) * 1000)),
             # SDK auto-resume may sleep for twenty minutes after a 408.
             auto_resume=False,
+            **cache_options,
         )
         return _to_json_compatible(result)
