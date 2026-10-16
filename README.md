@@ -27,7 +27,11 @@ The default overall limit is four minutes (`DEMO_GENERATION_TIMEOUT_SECONDS`);
 Firecrawl requests are limited to 40 seconds and each Gemini attempt to 60
 seconds, clamped to the remaining generation time. Firecrawl's long automatic
 resume and Gemini's hidden SDK retries are disabled. The shared Gemini fallback
-handles 429/503 capacity errors with bounded attempts. Preview image caching has
+handles 429/503 capacity errors with at most three attempts. It tries the primary,
+configured fallback, then `GEMINI_ADDITIONAL_FALLBACK_MODELS` (default:
+`gemini-3.5-flash-lite`), removing duplicates. With fewer than three distinct
+models, the final model gets one short retry for 503. Authentication and schema
+errors fail immediately. Preview image caching has
 an eight-second budget and cannot discard a successfully compiled email.
 
 Repeat generations reuse recent website, brand, reference, and campaign-plan

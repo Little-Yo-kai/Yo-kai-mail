@@ -104,6 +104,15 @@ class OfflineWorkflowTests(SimpleTestCase):
             self.generate()
         self.assertEqual(self.design.call_count, 2)
 
+    def test_capacity_fallback_change_invalidates_cached_preparation(self):
+        self.generate()
+        with override_settings(GEMINI_ADDITIONAL_FALLBACK_MODELS=["changed-fallback"]):
+            self.generate()
+        self.assertEqual(
+            self.mocks["GeminiBrandService"].return_value.analyze.call_count, 2
+        )
+        self.assertEqual(self.plan.call_count, 2)
+
     def test_failed_generation_is_not_cached_and_stage_is_preserved(self):
         self.design.side_effect = RuntimeError("provider failed")
         with self.assertRaises(DemoGenerationError) as raised:

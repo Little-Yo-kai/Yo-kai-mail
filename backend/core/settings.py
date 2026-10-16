@@ -201,6 +201,10 @@ GEMINI_FALLBACK_MODEL = env(
     'GEMINI_FALLBACK_MODEL',
     default='gemini-3.5-flash-lite',
 )
+GEMINI_ADDITIONAL_FALLBACK_MODELS = env.list(
+    'GEMINI_ADDITIONAL_FALLBACK_MODELS',
+    default=['gemini-3.5-flash-lite'],
+)
 GEMINI_REVISION_MODEL = env(
     'GEMINI_REVISION_MODEL',
     default=GEMINI_GENERATION_MODEL,

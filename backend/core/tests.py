@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from core.ai_fallback import (
@@ -17,6 +17,7 @@ class ApiSchemaTests(TestCase):
 
 
 
+@override_settings(GEMINI_ADDITIONAL_FALLBACK_MODELS=[])
 class AiFallbackTests(TestCase):
     def test_rate_limit_retries_with_fallback_model(self):
         create = Mock()

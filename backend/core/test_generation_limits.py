@@ -19,6 +19,7 @@ from core.generation_budget import (
 from website_intelligence.services.firecrawl import FirecrawlService
 
 
+@override_settings(GEMINI_ADDITIONAL_FALLBACK_MODELS=[])
 class ProviderDeadlineTests(SimpleTestCase):
     @patch("requests.post")
     @override_settings(FIRECRAWL_API_KEY="test-key")

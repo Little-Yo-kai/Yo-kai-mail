@@ -33,6 +33,7 @@ def _ai_identity(model, prompt, schema):
     return {
         "model": model,
         "fallback": settings.GEMINI_FALLBACK_MODEL,
+        "additional_fallbacks": settings.GEMINI_ADDITIONAL_FALLBACK_MODELS,
         "credential": fingerprint(settings.GEMINI_API_KEY),
         "prompt": prompt,
         "schema": schema.model_json_schema(),
