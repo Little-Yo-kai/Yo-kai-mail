@@ -11,6 +11,7 @@ import warnings
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from urllib.parse import urljoin
 
 from django.conf import settings
@@ -24,6 +25,11 @@ from assets.services.ssrf import (
 
 MAX_REDIRECTS = 3
 CACHE_KEY_PATTERN_LENGTH = 64
+CLEANUP_INTERVAL_SECONDS = 60
+_cleanup_lock = Lock()
+_last_cleanup = None
+# Fixed stripes bound lock memory even when callers supply many unique URLs.
+_url_fetch_locks = tuple(Lock() for _ in range(64))
 
 MIME_EXTENSIONS = {
     "image/jpeg": ".jpg",
@@ -335,12 +341,10 @@ def read_cached_email_asset(
     )
 
 
-def get_or_cache_remote_image(url: str, *, timeout: float = 8) -> CachedEmailAsset:
-    now = int(time.time())
-    index_path = _url_index_path(url)
+def _read_url_cached_asset(url: str, index_path: Path) -> CachedEmailAsset | None:
     index = _read_json(index_path)
 
-    if index and int(index.get("expires_at") or 0) > now:
+    if index and int(index.get("expires_at") or 0) > int(time.time()):
         cache_key = index.get("cache_key")
         if isinstance(cache_key, str):
             try:
@@ -350,9 +354,32 @@ def get_or_cache_remote_image(url: str, *, timeout: float = 8) -> CachedEmailAss
                 )
             except EmailAssetCacheError:
                 pass
+    return None
 
-    body, _mime_type, resolved_url = _fetch_public_image(url, timeout=timeout)
-    return cache_image_bytes(body, source_url=url, resolved_url=resolved_url)
+
+def get_or_cache_remote_image(url: str, *, timeout: float = 8) -> CachedEmailAsset:
+    deadline = time.monotonic() + timeout
+    index_path = _url_index_path(url)
+    cached = _read_url_cached_asset(url, index_path)
+    if cached is not None:
+        return cached
+
+    lock = _url_fetch_locks[int(index_path.stem[:2], 16) % len(_url_fetch_locks)]
+    remaining = deadline - time.monotonic()
+    if remaining <= 0 or not lock.acquire(timeout=remaining):
+        raise EmailAssetCacheError("Preview image download timed out.")
+    try:
+        # A concurrent preview/send may have populated the cache while we waited.
+        cached = _read_url_cached_asset(url, index_path)
+        if cached is not None:
+            return cached
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise EmailAssetCacheError("Preview image download timed out.")
+        body, _mime_type, resolved_url = _fetch_public_image(url, timeout=remaining)
+        return cache_image_bytes(body, source_url=url, resolved_url=resolved_url)
+    finally:
+        lock.release()
 
 
 def cache_image_bytes(
@@ -436,6 +463,25 @@ def cache_image_bytes(
 
 
 def cleanup_expired_email_assets() -> None:
+    global _last_cleanup
+    if not _cleanup_lock.acquire(blocking=False):
+        return
+    try:
+        root = os.path.abspath(settings.EMAIL_ASSET_CACHE_DIR)
+        monotonic = time.monotonic()
+        if (
+            _last_cleanup is not None
+            and _last_cleanup[0] == root
+            and monotonic - _last_cleanup[1] < CLEANUP_INTERVAL_SECONDS
+        ):
+            return
+        _remove_expired_email_assets()
+        _last_cleanup = (root, time.monotonic())
+    finally:
+        _cleanup_lock.release()
+
+
+def _remove_expired_email_assets() -> None:
     now = int(time.time())
 
     for metadata_path in _objects_dir().glob("*.json"):

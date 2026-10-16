@@ -86,7 +86,7 @@ class DemoRenderView(APIView):
 
     @extend_schema(
         responses=OpenApiTypes.OBJECT,
-        summary="Apply image and layout edits without an AI call",
+        summary="Apply copy, image and layout edits without an AI call",
     )
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
@@ -106,6 +106,8 @@ class DemoRenderView(APIView):
                 "success": True,
                 "data": {
                     "html": compiled["html"],
+                    "text": compiled.get("text", ""),
+                    "warnings": rendered.get("warnings", []),
                     "preview_html": preview,
                     "mjml": rendered["mjml"],
                     "compiler_errors": compiled["compiler_errors"],

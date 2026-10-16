@@ -10,6 +10,7 @@ from core.timing import timed_stage
 from email_assets.html import image_sources, replace_image_sources
 from email_assets.temp_cache import (
     MIME_EXTENSIONS,
+    CachedEmailAsset,
     EmailAssetCacheError,
     get_or_cache_remote_image,
     read_cached_email_asset,
@@ -59,6 +60,7 @@ def _prepare_inline_assets(
     attachments: list[dict] = []
     inline_manifest: list[dict] = []
     attachment_by_cache_key: dict[str, str] = {}
+    prepared_assets: dict[str, CachedEmailAsset] = {}
     total_bytes = 0
 
     supplied_urls = {item["source_url"] for item in cached_asset_refs}
@@ -81,6 +83,7 @@ def _prepare_inline_assets(
                 "An email image could not be attached. Replace the image or regenerate before sending.",
                 details=str(exc),
             ) from exc
+        prepared_assets[cached.cache_key] = cached
         refs.append({"cache_key": cached.cache_key, "source_url": source_url})
 
     for item in refs:
@@ -90,16 +93,21 @@ def _prepare_inline_assets(
         if source_url not in source_urls:
             continue
 
-        try:
-            cached = read_cached_email_asset(
-                cache_key,
-                source_url=source_url,
-            )
-        except EmailAssetCacheError as exc:
-            raise ResendDeliveryError(
-                "A temporary email image is no longer available.",
-                details=str(exc),
-            ) from exc
+        cached = prepared_assets.get(cache_key)
+        if cached is None:
+            try:
+                cached = read_cached_email_asset(
+                    cache_key,
+                    source_url=source_url,
+                )
+            except EmailAssetCacheError as exc:
+                raise ResendDeliveryError(
+                    "A temporary email image is no longer available.",
+                    details=str(exc),
+                ) from exc
+            # A legacy entry may acquire a new key after image normalization.
+            prepared_assets[cache_key] = cached
+            prepared_assets[cached.cache_key] = cached
 
         cache_key = cached.cache_key
 
@@ -142,6 +150,9 @@ def _prepare_inline_assets(
             }
         )
 
+    # Retrying equivalent HTML with reordered client refs must produce the same
+    # provider payload for the same idempotency key.
+    attachments.sort(key=lambda item: item["content_id"])
     delivery_html = replace_image_sources(html_document, replacement_map)
     return delivery_html, attachments, inline_manifest
 

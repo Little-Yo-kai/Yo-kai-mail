@@ -36,12 +36,7 @@ def is_rate_limit_error(exc: Exception) -> bool:
     if status is not None:
         return status == 429
     text = str(exc).lower()
-    return (
-        "rate limit" in text
-        or "too_many_requests" in text
-        or "error code: 429" in text
-        or "'code': 429" in text
-    )
+    return "rate limit" in text or "too_many_requests" in text
 
 
 def is_temporary_unavailability_error(exc: Exception) -> bool:
@@ -55,17 +50,7 @@ def is_temporary_unavailability_error(exc: Exception) -> bool:
         return status == 503
 
     text = str(exc).lower()
-    return (
-        "service_unavailable" in text
-        or "high demand" in text
-        or bool(
-            re.search(
-                r"\b(?:error code|status code|http status|http)\s*[:=]?\s*503\b",
-                text,
-            )
-        )
-        or bool(re.search(r"['\"]code['\"]\s*:\s*503\b", text))
-    )
+    return "service_unavailable" in text or "high demand" in text
 
 
 def call_with_model_fallback(

@@ -1784,7 +1784,9 @@ main {
   color: var(--muted);
   font-size: 11px;
 }
-.image-editor-section select {
+.image-editor-section select,
+.image-editor-section input:not([type="file"]),
+.image-editor-section textarea {
   min-width: 0;
   width: 100%;
   border: 1px solid var(--line);
@@ -1794,6 +1796,10 @@ main {
   color: var(--ink);
   font: inherit;
   font-size: 12px;
+}
+.image-editor-section textarea {
+  resize: vertical;
+  min-height: 88px;
 }
 .image-editor-section .image-upload-button {
   display: block;

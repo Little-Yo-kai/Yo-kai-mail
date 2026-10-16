@@ -34,6 +34,41 @@ class ProductCampaignTests(APITestCase):
 
 @override_settings(RESEND_API_KEY="re_test", RESEND_FROM_EMAIL="preview@example.com")
 class ImageEditingDeliveryTests(APITestCase):
+    @patch(
+        "demo_flow.editing.build_preview_html",
+        return_value=("<html>Preview</html>", [], []),
+    )
+    @patch("demo_flow.editing.compile_mjml_to_html")
+    def test_copy_edits_return_plain_text_and_quality_warnings(
+        self, compile_mock, preview_mock
+    ):
+        design = sample_email_design()
+        design["subject"] = "A subject written by the user"
+        design["preheader"] = "A preview written by the user"
+        design["sections"][0]["headline"] = "Your <edited> headline"
+        compile_mock.return_value = {
+            "html": "<html>Edited email</html>",
+            "text": "Edited email",
+            "compiler_errors": [],
+        }
+        response = self.client.post(
+            reverse("phase1-demo-render"),
+            {
+                "brand_profile": sample_brand_profile(),
+                "email_design": design,
+                "asset_inventory": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        rendered = response.data["data"]
+        self.assertEqual(rendered["text"], "Edited email")
+        self.assertIn("Your &lt;edited&gt; headline", rendered["mjml"])
+        self.assertIn(
+            "missing-footer", [warning["code"] for warning in rendered["warnings"]]
+        )
+        self.assertIn("A subject written by the user", rendered["mjml"])
+
     @patch("resend.default_http_client.request")
     @patch("demo_flow.editing.compile_mjml_to_html")
     def test_upload_edit_preview_and_actual_sdk_request_share_valid_image_bytes(

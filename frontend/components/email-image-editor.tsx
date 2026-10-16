@@ -1,28 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useRef } from "react";
+import {
+  emailEditorReducer,
+  hasPendingEditorChanges,
+  initialEditorState,
+  readUploadedEmailAsset,
+  type EditableEmailDesign,
+  type EmailAsset,
+} from "../lib/email-editor";
 
-export type EmailAsset = {
-  asset_id: string;
-  kind: string;
-  url: string;
-  source?: string;
-};
-
-export type EditableEmailDesign = {
-  subject: string;
-  preheader: string;
-  theme: Record<string, string>;
-  sections: Array<{
-    id: string;
-    type: string;
-    layout: string;
-    headline?: string | null;
-    asset_ids: string[];
-    [key: string]: unknown;
-  }>;
-  [key: string]: unknown;
-};
+export type { EditableEmailDesign, EmailAsset } from "../lib/email-editor";
 
 type Props = {
   apiBase: string;
@@ -39,93 +27,108 @@ export function EmailImageEditor({
   onApply,
   onDirtyChange,
 }: Props) {
-  const [draft, setDraft] = useState(design);
-  const [inventory, setInventory] = useState(assets);
-  const [dirty, setDirty] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [state, dispatch] = useReducer(emailEditorReducer, initialEditorState(design, assets));
+  const { draft, inventory, dirty, error } = state;
+  const busy = state.operation !== null;
+  const sequence = useRef(0);
+  const activeRequest = useRef<{ id: number; controller: AbortController } | null>(null);
 
   useEffect(() => {
-    setDraft(design);
-    setInventory(assets);
-    setDirty(false);
-    onDirtyChange(false);
-  }, [design, assets, onDirtyChange]);
+    dispatch({ type: "reset", design, assets });
+    return () => {
+      activeRequest.current?.controller.abort();
+      activeRequest.current = null;
+    };
+  }, [design, assets]);
+
+  useEffect(() => {
+    onDirtyChange(hasPendingEditorChanges(state));
+  }, [state.dirty, state.operation, onDirtyChange]);
 
   function updateSection(
     id: string,
-    changes: Partial<EditableEmailDesign["sections"][number]>,
+    changes: Partial<Pick<EditableEmailDesign["sections"][number], "headline" | "body" | "asset_ids" | "layout">>,
   ) {
-    setDraft((current) => ({
-      ...current,
-      sections: current.sections.map((section) =>
-        section.id === id ? { ...section, ...changes } : section,
-      ),
-    }));
-    setDirty(true);
-    onDirtyChange(true);
+    dispatch({ type: "section", id, changes });
   }
 
   async function uploadImage(id: string, file: File) {
-    setBusy(true);
-    onDirtyChange(true);
-    setError("");
+    if (activeRequest.current) return;
+    const request = { id: ++sequence.current, controller: new AbortController() };
+    activeRequest.current = request;
+    dispatch({ type: "begin", id: request.id, kind: "upload" });
     try {
       const body = new FormData();
       body.append("image", file);
       const response = await fetch(`${apiBase}/api/demo/images/`, {
         method: "POST",
         body,
+        signal: request.controller.signal,
       });
-      const payload = await response.json();
-      if (!response.ok || !payload.success)
-        throw new Error(
-          payload.error || payload.image?.[0] || "Image upload failed.",
-        );
-      const asset = payload.data.asset as EmailAsset;
-      setInventory((current) => [
-        ...current.filter((item) => item.asset_id !== asset.asset_id),
-        asset,
-      ]);
-      updateSection(id, { asset_ids: [asset.asset_id] });
+      const asset = await readUploadedEmailAsset(response);
+      if (activeRequest.current === request) {
+        dispatch({ type: "uploaded", id: request.id, sectionId: id, asset });
+      }
     } catch (uploadError) {
-      onDirtyChange(dirty);
-      setError(
-        uploadError instanceof Error
-          ? uploadError.message
-          : "Image upload failed.",
-      );
+      if (activeRequest.current === request && !request.controller.signal.aborted) {
+        dispatch({ type: "failed", id: request.id, error: uploadError instanceof Error ? uploadError.message : "Image upload failed." });
+      }
     } finally {
-      setBusy(false);
+      if (activeRequest.current === request) {
+        activeRequest.current = null;
+        dispatch({ type: "finished", id: request.id });
+      }
     }
   }
 
   async function apply() {
-    setBusy(true);
-    setError("");
+    if (activeRequest.current) return;
+    if (!draft.subject.trim() || !draft.preheader.trim()) {
+      dispatch({ type: "error", error: "Add a subject and preview text before applying." });
+      return;
+    }
+    const request = { id: ++sequence.current, controller: new AbortController() };
+    activeRequest.current = request;
+    dispatch({ type: "begin", id: request.id, kind: "apply" });
     try {
       await onApply(draft, inventory);
+      if (activeRequest.current === request) dispatch({ type: "applied", id: request.id });
     } catch (applyError) {
-      setError(
-        applyError instanceof Error
-          ? applyError.message
-          : "Could not update the email.",
-      );
+      if (activeRequest.current === request) {
+        dispatch({ type: "failed", id: request.id, error: applyError instanceof Error ? applyError.message : "Could not update the email." });
+      }
     } finally {
-      setBusy(false);
+      if (activeRequest.current === request) {
+        activeRequest.current = null;
+        dispatch({ type: "finished", id: request.id });
+      }
     }
   }
 
   return (
     <details className="image-editor" open>
       <summary>
-        <span>Images & layout</span>
-        <span className="editor-subtitle">Change a photo or its placement</span>
+        <span>Copy, images & layout</span>
+        <span className="editor-subtitle">Refine your email before sending</span>
       </summary>
       <p className="editor-help">
-        Choose a website image or upload your own. Apply changes to update the
-        preview and test email.
+        Edit your copy, choose a website image or upload your own. Apply changes
+        to update the preview and test email. Keep product claims accurate;
+        buttons keep their original destination.
       </p>
+      <form onSubmit={(event) => { event.preventDefault(); void apply(); }}>
+      <div className="image-editor-section">
+        <label>
+          Subject
+          <input aria-label="Email subject" value={draft.subject} maxLength={200} required disabled={busy}
+            onChange={(event) => dispatch({ type: "copy", field: "subject", value: event.target.value })} />
+        </label>
+        <label>
+          Preview text
+          <input aria-label="Email preview text" value={draft.preheader} maxLength={240} required disabled={busy}
+            onChange={(event) => dispatch({ type: "copy", field: "preheader", value: event.target.value })} />
+        </label>
+      </div>
       <div className="image-editor-grid">
         {draft.sections
           .filter(
@@ -140,6 +143,26 @@ export function EmailImageEditor({
                   {section.headline || section.type.replaceAll("_", " ")}
                 </strong>
               </div>
+              <label>
+                Headline
+                <input aria-label={`Headline for ${section.id}`} value={section.headline ?? ""}
+                  maxLength={160} required={section.type === "hero"} disabled={busy}
+                  onChange={(event) => updateSection(section.id, { headline: event.target.value })} />
+              </label>
+              <label>
+                Body copy
+                <textarea aria-label={`Body copy for ${section.id}`} value={section.body ?? ""}
+                  maxLength={1200} rows={4} disabled={busy}
+                  onChange={(event) => updateSection(section.id, { body: event.target.value })} />
+              </label>
+              {section.cta && (
+                <label>
+                  Button label
+                  <input aria-label={`Button label for ${section.id}`} value={section.cta.label}
+                    maxLength={100} required disabled={busy}
+                    onChange={(event) => dispatch({ type: "cta-label", id: section.id, value: event.target.value })} />
+                </label>
+              )}
               <label>
                 Image
                 <select
@@ -214,12 +237,13 @@ export function EmailImageEditor({
         <span>
           {dirty
             ? "You have unapplied changes."
-            : "Preview and test email use the same images."}
+            : "Preview and test email use the applied design."}
         </span>
-        <button type="button" disabled={busy || !dirty} onClick={apply}>
-          {busy ? "Updating…" : "Apply design changes"}
+        <button type="submit" disabled={busy || !dirty}>
+          {state.operation?.kind === "upload" ? "Uploading…" : busy ? "Applying…" : "Apply design changes"}
         </button>
       </div>
+      </form>
     </details>
   );
 }

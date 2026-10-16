@@ -1,4 +1,5 @@
 import base64
+from dataclasses import replace
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -126,6 +127,56 @@ class SendPayloadTests(SimpleTestCase):
         self.assertIn("cid:yokai-", params["html"])
         self.assertNotIn(source, params["html"])
         self.assertEqual(result["inline_asset_bytes"], len(cached_image().body))
+        read_mock.assert_not_called()
+
+    @patch("email_delivery.services.resend.read_cached_email_asset", return_value=cached_image())
+    @patch("email_delivery.services.resend.resend.Emails.send", return_value={"id": "fixture"})
+    def test_shared_cache_key_is_read_once_for_multiple_sources(self, send_mock, read_mock):
+        urls = ["https://example.com/hero.png", "https://example.com/logo.png"]
+        result = ResendEmailService().send_test_email(
+            to="recipient@example.com", subject="Fixture",
+            html="".join(f'<img src="{url}" alt="Hero">' for url in urls),
+            cached_assets=[{"cache_key": "a" * 64, "source_url": url} for url in urls],
+        )
+        read_mock.assert_called_once()
+        params = send_mock.call_args.args[0]
+        self.assertEqual(len(params["attachments"]), 1)
+        self.assertEqual(len(result["inline_assets"]), 2)
+        self.assertEqual(result["inline_asset_bytes"], len(cached_image().body))
+
+    @patch("email_delivery.services.resend.read_cached_email_asset", return_value=cached_image())
+    @patch("email_delivery.services.resend.resend.Emails.send", return_value={"id": "fixture"})
+    def test_upgraded_cache_key_reuses_already_read_asset(self, send_mock, read_mock):
+        urls = ["https://example.com/old.png", "https://example.com/new.png"]
+        ResendEmailService().send_test_email(
+            to="recipient@example.com", subject="Fixture",
+            html="".join(f'<img src="{url}" alt="Hero">' for url in urls),
+            cached_assets=[
+                {"cache_key": "b" * 64, "source_url": urls[0]},
+                {"cache_key": "a" * 64, "source_url": urls[1]},
+            ],
+        )
+        read_mock.assert_called_once_with("b" * 64, source_url=urls[0])
+        self.assertEqual(len(send_mock.call_args.args[0]["attachments"]), 1)
+
+    @patch("email_delivery.services.resend.read_cached_email_asset")
+    @patch("email_delivery.services.resend.resend.Emails.send", return_value={"id": "fixture"})
+    def test_reordered_refs_keep_payload_and_default_idempotency_identical(self, send_mock, read_mock):
+        first = cached_image()
+        second = replace(first, cache_key="b" * 64, body=b"second-image", filename="second.png")
+        read_mock.side_effect = lambda cache_key, **kwargs: first if cache_key == first.cache_key else second
+        refs = [
+            {"cache_key": first.cache_key, "source_url": "https://example.com/hero.png"},
+            {"cache_key": second.cache_key, "source_url": "https://example.com/logo.png"},
+        ]
+        html = "".join(f'<img src="{ref["source_url"]}" alt="Hero">' for ref in refs)
+        service = ResendEmailService()
+        service.send_test_email(to="recipient@example.com", subject="Fixture", html=html, cached_assets=refs)
+        first_call = send_mock.call_args
+        service.send_test_email(to="recipient@example.com", subject="Fixture", html=html, cached_assets=list(reversed(refs)))
+        self.assertEqual(send_mock.call_args, first_call)
+        # Reuse is scoped to a single send, so later sends still check expiry.
+        self.assertEqual(read_mock.call_count, 4)
 
     @patch("email_delivery.services.resend.read_cached_email_asset")
     @patch("email_delivery.services.resend.resend.Emails.send")

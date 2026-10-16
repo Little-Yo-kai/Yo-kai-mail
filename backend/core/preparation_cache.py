@@ -40,18 +40,29 @@ def _check_budget():
         budget.check()
 
 
-def cached_preparation(*, stage, inputs, compute, timeout, refresh=False):
+def cached_preparation(
+    *,
+    stage,
+    inputs,
+    compute,
+    timeout,
+    refresh=False,
+    cache_alias="generation",
+    enabled=None,
+):
     """Return an isolated result and cache status; failures are never cached.
 
     Redis can share completed results across workers. In-flight coalescing is
     deliberately process-local, so a failed cache cannot block generation.
     """
     _check_budget()
-    if not settings.GENERATION_CACHE_ENABLED or timeout <= 0:
+    if enabled is None:
+        enabled = settings.GENERATION_CACHE_ENABLED
+    if not enabled or timeout <= 0:
         return compute(), "disabled"
 
     key = f"preparation:v1:{stage}:{fingerprint(inputs)}"
-    cache = caches["generation"]
+    cache = caches[cache_alias]
     if not refresh:
         try:
             value = cache.get(key, _MISSING)
@@ -62,7 +73,7 @@ def cached_preparation(*, stage, inputs, compute, timeout, refresh=False):
             if value is not _MISSING:
                 return copy.deepcopy(value), "hit"
 
-    flight_key = key + (":refresh" if refresh else "")
+    flight_key = cache_alias + ":" + key + (":refresh" if refresh else "")
     with _lock:
         flight = _inflight.get(flight_key)
         leader = flight is None
@@ -83,6 +94,8 @@ def cached_preparation(*, stage, inputs, compute, timeout, refresh=False):
                     compute=compute,
                     timeout=timeout,
                     refresh=refresh,
+                    cache_alias=cache_alias,
+                    enabled=enabled,
                 )
             raise flight.error
         return copy.deepcopy(flight.value), "shared"

@@ -1,5 +1,7 @@
 import json
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -85,3 +87,57 @@ class CompilerCacheTests(SimpleTestCase):
         for _ in range(2):
             compile_mjml_to_html("<mjml>uncached</mjml>")
         self.assertEqual(run.call_count, 2)
+
+    @patch("email_rendering.compiler.subprocess.run")
+    def test_simultaneous_cold_requests_share_one_compilation(self, run):
+        run.return_value = SimpleNamespace(
+            returncode=0, stdout='{"html":"<html>Shared</html>"}', stderr=""
+        )
+        barrier = threading.Barrier(4, timeout=3)
+        seen = set()
+        lock = threading.Lock()
+        original_get = cache.get
+
+        def cold_reads(*args, **kwargs):
+            value = original_get(*args, **kwargs)
+            with lock:
+                first_read = threading.get_ident() not in seen
+                seen.add(threading.get_ident())
+            if first_read:
+                barrier.wait()
+            return value
+
+        with (
+            patch.object(cache, "get", side_effect=cold_reads),
+            ThreadPoolExecutor(max_workers=4) as pool,
+        ):
+            outputs = list(
+                pool.map(
+                    lambda _: compile_mjml_to_html("<mjml>shared-cold</mjml>"), range(4)
+                )
+            )
+        self.assertEqual(run.call_count, 1)
+        self.assertTrue(all(output == outputs[0] for output in outputs))
+
+    @patch("email_rendering.compiler.subprocess.run")
+    def test_optional_cache_outage_does_not_break_rendering(self, run):
+        run.return_value = SimpleNamespace(
+            returncode=0, stdout='{"html":"<html>Usable</html>"}', stderr=""
+        )
+        for method in ("get", "set"):
+            with (
+                self.subTest(method=method),
+                patch.object(cache, method, side_effect=OSError("cache unavailable")),
+            ):
+                result = compile_mjml_to_html(f"<mjml>cache-outage-{method}</mjml>")
+            self.assertIn("Usable", result["html"])
+
+    @override_settings(GENERATION_CACHE_ENABLED=False)
+    @patch("email_rendering.compiler.subprocess.run")
+    def test_compile_cache_is_independent_of_ai_preparation_cache_setting(self, run):
+        run.return_value = SimpleNamespace(
+            returncode=0, stdout='{"html":"<html>Reusable</html>"}', stderr=""
+        )
+        compile_mjml_to_html("<mjml>independent</mjml>")
+        compile_mjml_to_html("<mjml>independent</mjml>")
+        run.assert_called_once()

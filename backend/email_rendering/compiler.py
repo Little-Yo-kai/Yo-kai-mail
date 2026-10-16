@@ -1,12 +1,11 @@
-import hashlib
 import json
 import subprocess
 from pathlib import Path
 
 from django.conf import settings
-from django.core.cache import cache
 
 from core.generation_budget import request_timeout
+from core.preparation_cache import cached_preparation
 from core.timing import timed_stage
 
 from .text import html_to_plain_text
@@ -37,23 +36,17 @@ def compile_mjml_to_html(mjml: str) -> dict:
         for path in runtime_files
         if path.exists()
     ]
-    cache_key = (
-        "email_compile:v1:"
-        + hashlib.sha256(
-            json.dumps([settings.MJML_NODE_BINARY, runtime_version, mjml]).encode(
-                "utf-8"
-            )
-        ).hexdigest()
-    )
     ttl = getattr(settings, "MJML_COMPILE_CACHE_TTL_SECONDS", 900)
     with timed_stage("compilation") as timing:
-        cached = cache.get(cache_key) if ttl > 0 else None
-        timing["cache_hit"] = cached is not None
-        if cached is not None:
-            return cached
-        compiled = _compile_uncached(mjml, script_path)
-        if ttl > 0:
-            cache.set(cache_key, compiled, ttl)
+        compiled, cache_status = cached_preparation(
+            stage="mjml_compilation",
+            inputs=[settings.MJML_NODE_BINARY, runtime_version, mjml],
+            compute=lambda: _compile_uncached(mjml, script_path),
+            timeout=ttl,
+            cache_alias="default",
+            enabled=ttl > 0,
+        )
+        timing["cache_hit"] = cache_status in {"hit", "shared"}
         return compiled
 
 

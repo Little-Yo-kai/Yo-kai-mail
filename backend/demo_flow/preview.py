@@ -23,6 +23,15 @@ def build_preview_html(
     html_document: str,
     asset_inventory: list[dict],
 ) -> tuple[str, list[dict], list[dict]]:
+    asset_urls = {
+        item.get("url")
+        for item in asset_inventory
+        if isinstance(item, dict) and isinstance(item.get("url"), str)
+    }
+    source_urls = image_sources(html_document).intersection(asset_urls)
+    if not source_urls:
+        return html_document, [], []
+
     # DNS and filesystem operations are not covered by socket timeouts.
     # Bound the *whole* optional preview task so compiled HTML is returned
     # even if one of those operations stalls. At most four tasks may linger.
@@ -33,14 +42,13 @@ def build_preview_html(
     deadline = time.monotonic() + seconds
 
     def fallback():
-        urls = {item.get("url") for item in asset_inventory if isinstance(item, dict)}
         diagnostics = [
             {
                 "url": source_url,
                 "status": "unavailable",
                 "reason": "Preview embedding did not finish in time. Original image URL retained.",
             }
-            for source_url in sorted(image_sources(html_document).intersection(urls))
+            for source_url in sorted(source_urls)
         ]
         return html_document, diagnostics, []
 
@@ -57,6 +65,7 @@ def build_preview_html(
                     html_document=html_document,
                     asset_inventory=asset_inventory,
                     deadline=deadline,
+                    source_urls=source_urls,
                 )
             )
         except Exception:
@@ -79,24 +88,25 @@ def build_preview_html(
         return fallback()
 
 
-def _build_preview_html(*, html_document, asset_inventory, deadline):
+def _build_preview_html(*, html_document, asset_inventory, deadline, source_urls=None):
     budget = current_budget()
+    if source_urls is None:
+        asset_urls = {
+            item.get("url")
+            for item in asset_inventory
+            if isinstance(item, dict) and isinstance(item.get("url"), str)
+        }
+        source_urls = image_sources(html_document).intersection(asset_urls)
+    if not source_urls:
+        return html_document, [], []
     cleanup_expired_email_assets()
-
-    asset_urls = {
-        item.get("url")
-        for item in asset_inventory
-        if isinstance(item, dict) and isinstance(item.get("url"), str)
-    }
-
-    source_urls = image_sources(html_document)
 
     replacements: dict[str, str] = {}
     diagnostics: list[dict] = []
     cached_assets: list[dict] = []
     inline_bytes = 0
 
-    for source_url in sorted(source_urls.intersection(asset_urls)):
+    for source_url in sorted(source_urls):
         try:
             remaining = deadline - time.monotonic()
             if (

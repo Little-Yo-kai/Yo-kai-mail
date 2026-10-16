@@ -144,6 +144,7 @@ export default function Home() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [timeoutSeconds, setTimeoutSeconds] = useState(240);
   const activeRequest = useRef<AbortController | null>(null);
+  const activeEditRequest = useRef<AbortController | null>(null);
   const [viewport, setViewport] = useState<"desktop" | "mobile">("desktop");
   const [copied, setCopied] = useState(false);
   const [recipient, setRecipient] = useState("");
@@ -169,30 +170,44 @@ export default function Home() {
     assets: EmailAsset[],
   ) {
     if (!result) return;
-    const response = await fetch(`${API_BASE}/api/demo/render/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        brand_profile: result.brand_profile,
+    const source = result;
+    activeEditRequest.current?.abort();
+    const controller = new AbortController();
+    activeEditRequest.current = controller;
+    try {
+      const response = await fetch(`${API_BASE}/api/demo/render/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          brand_profile: source.brand_profile,
+          email_design: design,
+          asset_inventory: assets,
+        }),
+      });
+      const payload = await response.json();
+      if (controller.signal.aborted || activeEditRequest.current !== controller)
+        return;
+      if (!response.ok || !payload.success || !payload.data)
+        throw new Error(payload.error || "Could not apply design changes.");
+      setResult((current) => current === source ? {
+        ...source,
         email_design: design,
         asset_inventory: assets,
-      }),
-    });
-    const payload = await response.json();
-    if (!response.ok || !payload.success)
-      throw new Error(payload.error || "Could not apply design changes.");
-    setResult({
-      ...result,
-      email_design: design,
-      asset_inventory: assets,
-      render: payload.data,
-    });
-    setDeliveryReceipt(null);
-    setDeliveryEvent("");
-    setSendError("");
+        render: payload.data,
+      } : current);
+      setDeliveryReceipt(null);
+      setDeliveryEvent("");
+      setSendError("");
+    } finally {
+      if (activeEditRequest.current === controller) activeEditRequest.current = null;
+    }
   }
 
-  useEffect(() => () => activeRequest.current?.abort(), []);
+  useEffect(() => () => {
+    activeRequest.current?.abort();
+    activeEditRequest.current?.abort();
+  }, []);
 
   useEffect(() => {
     if (!loading) return;
@@ -207,6 +222,8 @@ export default function Home() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (activeRequest.current) return;
+    activeEditRequest.current?.abort();
+    activeEditRequest.current = null;
     const controller = new AbortController();
     activeRequest.current = controller;
     let timedOut = false;
@@ -228,6 +245,7 @@ export default function Home() {
     setError("");
     setErrorStage("");
     setResult(null);
+    setPendingEdits(false);
     setDeliveryReceipt(null);
     setDeliveryEvent("");
     setSendError("");
@@ -582,7 +600,7 @@ export default function Home() {
 
             <p className="demo-note">
               Website images are prepared for preview and test delivery. You can
-              replace a photo or adjust its placement after generation.
+              edit the copy, replace a photo or adjust its placement after generation.
             </p>
           </form>
         </section>
@@ -594,7 +612,10 @@ export default function Home() {
                 className="back-button"
                 type="button"
                 onClick={() => {
+                  activeEditRequest.current?.abort();
+                  activeEditRequest.current = null;
                   setResult(null);
+                  setPendingEdits(false);
                   setError("");
                   setErrorStage("");
                   setDeliveryReceipt(null);
@@ -724,7 +745,7 @@ export default function Home() {
               <p className="send-status error" role="status">
                 {pendingEdits
                   ? "Apply your design changes before sending."
-                  : "Some images could not be downloaded. Replace or remove them in Images & layout, then apply changes before sending."}
+                  : "Some images could not be downloaded. Replace or remove them in the editor, then apply changes before sending."}
               </p>
             )}
 
