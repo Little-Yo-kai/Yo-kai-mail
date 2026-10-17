@@ -1,0 +1,39 @@
+[
+  {
+    "name": "product-rich",
+    "asset_ids": ["og_image", "hero_1"],
+    "hero_layout": "full_width",
+    "product_grid": true,
+    "color_scheme": "light",
+    "colors": {"secondary": "#777777"}
+  },
+  {
+    "name": "single-image",
+    "asset_ids": ["og_image"],
+    "hero_layout": "split_image_left",
+    "product_grid": false,
+    "color_scheme": "light",
+    "colors": {"secondary": "#777777"}
+  },
+  {
+    "name": "asset-poor",
+    "asset_ids": [],
+    "hero_layout": "centered",
+    "product_grid": false,
+    "color_scheme": "light",
+    "colors": {"secondary": "#00AA00"}
+  },
+  {
+    "name": "dark",
+    "asset_ids": ["og_image"],
+    "hero_layout": "full_width",
+    "product_grid": false,
+    "color_scheme": "dark",
+    "colors": {
+      "primary": "#FF8800",
+      "secondary": "#FF8800",
+      "background": "#111111",
+      "text_primary": "#F5F5F5"
+    }
+  }
+]

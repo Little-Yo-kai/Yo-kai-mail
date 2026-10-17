@@ -10,6 +10,7 @@ from unittest.mock import patch
 from django.core.management.base import BaseCommand, CommandError
 from django.test import override_settings
 
+from demo_flow.prompt_benchmark import measure_prompt_context
 from demo_flow.service import generate_phase1_demo
 from email_generation.schemas import EmailDesign
 from email_rendering.compiler import compile_mjml_to_html
@@ -87,6 +88,7 @@ class Command(BaseCommand):
                 Path(__file__).resolve().parents[2] / "fixtures" / "workflow.json"
             ).read_text(encoding="utf-8")
         )
+        prompt_context = measure_prompt_context(fixture)
         _, extraction = _measure(
             lambda: build_website_snapshot(fixture["url"], fixture["scraped"]), 3
         )
@@ -171,6 +173,7 @@ class Command(BaseCommand):
             json.dumps(
                 {
                     "mode": "offline_fixture",
+                    "prompt_context": prompt_context,
                     "normalization": extraction,
                     "validation": validation,
                     "design_to_mjml": rendering,

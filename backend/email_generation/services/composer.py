@@ -13,6 +13,7 @@ from reference_design.schemas import ReferenceDesignSpec
 from ..builders import normalize_email_design, repair_email_design_payload
 from ..prompts import EMAIL_DESIGN_COMPOSER_PROMPT
 from ..schemas import AssetDescriptor, ContentPlan, EmailDesign, FactLedger
+from .context import serialize_prompt_context
 from .gemini import (
     GeminiGenerationNotConfiguredError,
 )
@@ -184,7 +185,7 @@ class GeminiEmailDesignComposer:
         prompt = (
             EMAIL_DESIGN_COMPOSER_PROMPT
             + "\n\nINPUT JSON:\n"
-            + json.dumps(input_payload, ensure_ascii=False)
+            + serialize_prompt_context(input_payload)
         )
 
         try:

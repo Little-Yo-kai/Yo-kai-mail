@@ -77,23 +77,30 @@ def _normalize_hex(value: str | None, fallback: str) -> str:
 
 
 def _contrast_text(hex_color: str) -> str:
-    value = hex_color.lstrip("#")
+    if not isinstance(hex_color, str):
+        return "#FFFFFF"
+    value = hex_color.removeprefix("#")
+    if len(value) not in {3, 6} or any(
+        character not in "0123456789abcdefABCDEF" for character in value
+    ):
+        return "#FFFFFF"
     if len(value) == 3:
         value = "".join(char * 2 for char in value)
 
-    try:
-        red = int(value[0:2], 16)
-        green = int(value[2:4], 16)
-        blue = int(value[4:6], 16)
-    except (ValueError, IndexError):
-        return "#FFFFFF"
-
-    luminance = (
-        0.2126 * red
-        + 0.7152 * green
-        + 0.0722 * blue
+    # WCAG contrast uses linearized sRGB, rather than weighted encoded bytes.
+    channels = [int(value[index:index + 2], 16) / 255 for index in (0, 2, 4)]
+    linear = [
+        channel / 12.92 if channel <= 0.04045
+        else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in channels
+    ]
+    luminance = sum(
+        channel * weight
+        for channel, weight in zip(linear, (0.2126, 0.7152, 0.0722), strict=True)
     )
-    return "#111111" if luminance > 170 else "#FFFFFF"
+    black_contrast = (luminance + 0.05) / 0.05
+    white_contrast = 1.05 / (luminance + 0.05)
+    return "#000000" if black_contrast >= white_contrast else "#FFFFFF"
 
 
 def resolve_theme(brand: BrandProfile, design: EmailDesign) -> dict:
@@ -181,6 +188,10 @@ def _asset_map(assets: list[AssetDescriptor]) -> dict[str, str]:
         if safe_url:
             result[asset.asset_id] = safe_url
     return result
+
+
+def _first_usable_asset_id(asset_ids: list[str], asset_urls: dict[str, str]) -> str | None:
+    return next((asset_id for asset_id in asset_ids if asset_id in asset_urls), None)
 
 
 def _mj_text(
@@ -371,7 +382,7 @@ def _render_grid(section: EmailSection, *, theme: dict, asset_urls: dict[str, st
 def _render_split(section: EmailSection, *, theme: dict, asset_urls: dict[str, str]) -> str:
     background = _section_background(section, theme)
     padding = SECTION_PADDING[section.style.spacing]
-    asset_id = section.asset_ids[0] if section.asset_ids else None
+    asset_id = _first_usable_asset_id(section.asset_ids, asset_urls)
     image_column = (
         '<mj-column width="50%" vertical-align="middle" padding="12px 16px">'
         + _mj_image(
@@ -402,7 +413,7 @@ def _render_split(section: EmailSection, *, theme: dict, asset_urls: dict[str, s
 def _render_standard(section: EmailSection, *, theme: dict, asset_urls: dict[str, str]) -> str:
     background = _section_background(section, theme)
     padding = SECTION_PADDING[section.style.spacing]
-    asset_id = section.asset_ids[0] if section.asset_ids else None
+    asset_id = _first_usable_asset_id(section.asset_ids, asset_urls)
 
     image = _mj_image(
         asset_id,

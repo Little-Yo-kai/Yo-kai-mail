@@ -221,6 +221,7 @@ def generate_phase1_demo(
                 "campaign_brief": campaign_brief,
                 "reference_design_spec": reference_design_spec,
                 "builder_version": 2,
+                "compact_context": settings.GEMINI_COMPACT_CONTEXT_ENABLED,
                 "ai": _ai_identity(
                     settings.GEMINI_GENERATION_MODEL,
                     CONTENT_STRATEGIST_PROMPT,

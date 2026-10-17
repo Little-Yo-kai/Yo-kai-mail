@@ -1,11 +1,9 @@
-import json
-
 from django.conf import settings
 from google import genai
-from core.gemini_client import create_gemini_client
 from pydantic import ValidationError
 
 from core.ai_fallback import call_with_model_fallback
+from core.gemini_client import create_gemini_client
 from core.timing import timed_stage
 
 from ..builders import (
@@ -15,6 +13,7 @@ from ..builders import (
 )
 from ..prompts import CONTENT_STRATEGIST_PROMPT
 from ..schemas import ContentPlan
+from .context import serialize_prompt_context
 
 
 class GeminiGenerationNotConfiguredError(RuntimeError):
@@ -73,7 +72,7 @@ class GeminiCampaignStrategist:
         prompt = (
             CONTENT_STRATEGIST_PROMPT
             + "\n\nINPUT JSON:\n"
-            + json.dumps(input_payload, ensure_ascii=False)
+            + serialize_prompt_context(input_payload)
         )
 
         try:

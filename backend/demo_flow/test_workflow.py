@@ -113,6 +113,13 @@ class OfflineWorkflowTests(SimpleTestCase):
         )
         self.assertEqual(self.plan.call_count, 2)
 
+    def test_prompt_format_switch_invalidates_only_the_plan_cache(self):
+        self.generate()
+        with override_settings(GEMINI_COMPACT_CONTEXT_ENABLED=False):
+            self.generate()
+        self.mocks["GeminiBrandService"].return_value.analyze.assert_called_once()
+        self.assertEqual(self.plan.call_count, 2)
+
     def test_failed_generation_is_not_cached_and_stage_is_preserved(self):
         self.design.side_effect = RuntimeError("provider failed")
         with self.assertRaises(DemoGenerationError) as raised:
